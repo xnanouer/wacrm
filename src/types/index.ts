@@ -1,4 +1,4 @@
-import type { AccountRole } from "@/lib/auth/roles";
+import type { AccountRole } from '@/lib/auth/roles';
 
 export interface Profile {
   id: string;
@@ -77,7 +77,7 @@ export interface AccountInvitation {
   id: string;
   account_id: string;
   /** Roles offered via invite — owner is never offered. */
-  role: Exclude<AccountRole, "owner">;
+  role: Exclude<AccountRole, 'owner'>;
   created_by_user_id: string | null;
   label: string | null;
   created_at: string;
@@ -97,6 +97,16 @@ export interface Contact {
   name?: string;
   email?: string;
   company?: string;
+  rut?: string;
+  rut_normalized?: string;
+  source?: string;
+  interest_product?: string;
+  budget?: number;
+  down_payment?: number;
+  financing_type?: string;
+  evaluation_status?: string;
+  next_follow_up_at?: string;
+  commercial_notes?: string;
   avatar_url?: string;
   created_at: string;
   updated_at: string;
@@ -145,7 +155,86 @@ export interface ContactNote {
   created_at: string;
 }
 
-export type ConversationStatus = 'open' | 'pending' | 'closed';
+export type ConversationStatus = 'pending' | 'open' | 'waiting' | 'closed';
+
+export interface Department {
+  id: string;
+  account_id: string;
+  name: string;
+  slug: string;
+  color: string;
+  position: number;
+  is_active: boolean;
+  created_by_user_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DepartmentMembershipRole = 'member' | 'supervisor';
+
+export interface DepartmentMember {
+  id: string;
+  account_id: string;
+  department_id: string;
+  user_id: string;
+  member_role: DepartmentMembershipRole;
+  is_active: boolean;
+  created_at: string;
+  profile?: Pick<Profile, 'user_id' | 'full_name' | 'email' | 'avatar_url'>;
+}
+
+export type TicketEventType =
+  | 'created'
+  | 'accepted'
+  | 'assigned'
+  | 'unassigned'
+  | 'transferred'
+  | 'department_changed'
+  | 'status_changed'
+  | 'waiting'
+  | 'closed'
+  | 'reopened';
+
+export interface TicketEvent {
+  id: string;
+  account_id: string;
+  conversation_id: string;
+  event_type: TicketEventType;
+  actor_user_id?: string;
+  from_status?: ConversationStatus;
+  to_status?: ConversationStatus;
+  from_agent_id?: string;
+  to_agent_id?: string;
+  from_department_id?: string;
+  to_department_id?: string;
+  note?: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface TicketNote {
+  id: string;
+  account_id: string;
+  conversation_id: string;
+  contact_id?: string;
+  author_user_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuickReply {
+  id: string;
+  account_id: string;
+  department_id?: string;
+  title: string;
+  shortcut?: string;
+  body: string;
+  is_active: boolean;
+  created_by_user_id?: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface Conversation {
   id: string;
@@ -153,12 +242,28 @@ export interface Conversation {
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
+  department_id?: string;
+  whatsapp_config_id?: string;
+  accepted_at?: string;
+  accepted_by_user_id?: string;
+  closed_at?: string;
+  closed_by_user_id?: string;
+  status_changed_at?: string;
+  waiting_since?: string;
+  first_response_at?: string;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;
   created_at: string;
   updated_at: string;
   contact?: Contact;
+  department?: Department;
+  whatsapp_config?: {
+    id: string;
+    phone_number_id: string;
+    display_name?: string;
+    display_phone?: string;
+  };
 }
 
 // ============================================================
@@ -194,7 +299,8 @@ export type ContentType =
   | 'template'
   /** Customer tapped a reply button or list row on a message we sent. */
   | 'interactive';
-export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+export type MessageStatus =
+  'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface Message {
   id: string;
@@ -342,8 +448,10 @@ export interface Deal {
   assignee?: Profile;
 }
 
-export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
-export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
+export type BroadcastStatus =
+  'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
+export type RecipientStatus =
+  'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
 
 export interface Broadcast {
   id: string;
@@ -485,10 +593,7 @@ export interface WaitStepConfig {
 }
 
 export type ConditionSubject =
-  | 'contact_field'
-  | 'tag_presence'
-  | 'message_content'
-  | 'time_of_day';
+  'contact_field' | 'tag_presence' | 'message_content' | 'time_of_day';
 
 export interface ConditionStepConfig {
   subject: ConditionSubject;

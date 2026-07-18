@@ -185,7 +185,12 @@ export async function sendMessageToConversation(
     );
   }
 
-  validateSendMessageParams({ messageType, contentText, mediaUrl, templateName });
+  validateSendMessageParams({
+    messageType,
+    contentText,
+    mediaUrl,
+    templateName,
+  });
 
   const isMediaKind = (MEDIA_KINDS as readonly string[]).includes(messageType);
 
@@ -220,11 +225,14 @@ export async function sendMessageToConversation(
   }
 
   // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
+  let configQuery = db
     .from('whatsapp_config')
     .select('*')
-    .eq('account_id', accountId)
-    .single();
+    .eq('account_id', accountId);
+  if (conversation.whatsapp_config_id) {
+    configQuery = configQuery.eq('id', conversation.whatsapp_config_id);
+  }
+  const { data: config, error: configError } = await configQuery.single();
 
   if (configError || !config) {
     throw new SendMessageError(
@@ -416,6 +424,8 @@ export async function sendMessageToConversation(
     .update({
       last_message_text: contentText || `[${messageType}]`,
       last_message_at: new Date().toISOString(),
+      first_response_at:
+        conversation.first_response_at ?? new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq('id', conversationId);

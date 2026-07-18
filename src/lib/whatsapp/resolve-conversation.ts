@@ -57,7 +57,7 @@ export async function resolveConversationByPhone(
   // connected — the same error the send would raise anyway.
   const { data: config } = await db
     .from('whatsapp_config')
-    .select('id')
+    .select('id, default_department_id')
     .eq('account_id', accountId)
     .maybeSingle();
   if (!config) {
@@ -66,6 +66,19 @@ export async function resolveConversationByPhone(
       'WhatsApp not configured. Please set up your WhatsApp integration first.',
       400
     );
+  }
+
+  let defaultDepartmentId = config.default_department_id as string | null;
+  if (!defaultDepartmentId) {
+    const { data: fallbackDepartment } = await db
+      .from('departments')
+      .select('id')
+      .eq('account_id', accountId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    defaultDepartmentId = fallbackDepartment?.id ?? null;
   }
 
   // Audit user for created rows = the single account-wide default used
@@ -144,6 +157,7 @@ export async function resolveConversationByPhone(
     .select('id')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
+    .eq('whatsapp_config_id', config.id)
     .maybeSingle();
 
   if (conv?.id) {
@@ -156,11 +170,31 @@ export async function resolveConversationByPhone(
       account_id: accountId,
       user_id: ownerUserId,
       contact_id: contactId,
+      status: 'pending',
+      assigned_agent_id: null,
+      department_id: defaultDepartmentId,
+      whatsapp_config_id: config.id,
     })
     .select('id')
     .single();
 
   if (convErr || !newConv) {
+    if (isUniqueViolation(convErr)) {
+      const { data: racedConversation } = await db
+        .from('conversations')
+        .select('id')
+        .eq('account_id', accountId)
+        .eq('contact_id', contactId)
+        .eq('whatsapp_config_id', config.id)
+        .maybeSingle();
+      if (racedConversation?.id) {
+        return {
+          conversationId: racedConversation.id,
+          contactId,
+          contactCreated,
+        };
+      }
+    }
     console.error('[resolve-conversation] conversation create error:', convErr);
     throw new SendMessageError(
       'db_error',
