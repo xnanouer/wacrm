@@ -122,6 +122,8 @@ export function rateLimitResponse(result: RateLimitResult): NextResponse {
 
 /** Preconfigured budgets, tweak here not at call sites. */
 export const RATE_LIMITS = {
+  /** Password login attempts, keyed by IP + normalized email. */
+  login: { limit: 10, windowMs: 15 * 60_000 },
   /** Individual message send. 60/min per user = one per second
    *  sustained, comfortable for a live human typing. */
   send: { limit: 60, windowMs: 60_000 },
