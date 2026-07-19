@@ -20,6 +20,9 @@
 # production
 /build
 
+# local database backups (may contain customer data)
+/.local-backups/
+
 # misc
 .DS_Store
 *.pem

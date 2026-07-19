@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  CONVERSATION_SELECT,
   matchesContactFilters,
   normalizeConversation,
 } from "./conversations";
@@ -36,6 +37,17 @@ const tag = (id: string, name = id) => ({
   name,
   color: "#fff",
   created_at: "",
+});
+
+describe("CONVERSATION_SELECT", () => {
+  it("disambiguates the account-scoped department and WhatsApp relations", () => {
+    expect(CONVERSATION_SELECT).toContain(
+      "departments!conversations_department_account_fkey",
+    );
+    expect(CONVERSATION_SELECT).toContain(
+      "whatsapp_config!conversations_whatsapp_account_fkey",
+    );
+  });
 });
 
 describe("matchesContactFilters", () => {

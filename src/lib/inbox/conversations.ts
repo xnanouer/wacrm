@@ -7,7 +7,7 @@ import type { Conversation, Contact, Tag } from '@/types';
  * flattens them onto `contact.tags`.
  */
 export const CONVERSATION_SELECT =
-  '*, contact:contacts(*, contact_tags(tags(*))), department:departments(*), whatsapp_config:whatsapp_config(id, phone_number_id, display_name, display_phone)';
+  '*, contact:contacts(*, contact_tags(tags(*))), department:departments!conversations_department_account_fkey(*), whatsapp_config:whatsapp_config!conversations_whatsapp_account_fkey(id, phone_number_id, display_name, display_phone)';
 
 /** Raw shape returned by {@link CONVERSATION_SELECT} before flattening. */
 type RawContact = Contact & { contact_tags?: { tags: Tag | null }[] };
