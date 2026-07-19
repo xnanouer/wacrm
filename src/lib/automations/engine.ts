@@ -32,6 +32,8 @@ export interface AutomationContext {
   tag_id?: string
   /** Agent the conversation was assigned to, for conversation_assigned. */
   agent_id?: string
+  /** Immutable source event for ticket-triggered executions. */
+  ticket_event_id?: string
 }
 
 export interface DispatchInput {
@@ -44,6 +46,8 @@ export interface DispatchInput {
   triggerType: AutomationTriggerType
   contactId?: string | null
   context?: AutomationContext
+  /** Internal idempotency key. Never accepted from the public trigger API. */
+  ticketEventId?: string
 }
 
 /**
@@ -177,6 +181,7 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
       // after teammates join the account.
       user_id: automation.user_id,
       contact_id: input.contactId ?? null,
+      ticket_event_id: input.ticketEventId ?? null,
       trigger_event: input.triggerType,
       steps_executed: [],
       status: 'success',
@@ -184,6 +189,11 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
     .select()
     .single()
 
+  if (logErr?.code === '23505' && input.ticketEventId) {
+    // A worker retry reached an event this automation already started.
+    // The existing log is the durable idempotency record, so skip it.
+    return
+  }
   if (logErr || !log) {
     console.error('[automations] cannot create log:', logErr)
     return

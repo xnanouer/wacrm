@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { resumePendingExecution } from '@/lib/automations/engine'
 import type { AutomationContext } from '@/lib/automations/engine'
+import { processTicketAutomationEvents } from '@/lib/automations/ticket-events'
 
 /**
- * Drain due `automation_pending_executions` rows. Meant to be hit
+ * Drain due wait steps and ticket-event automation rows. Meant to be hit
  * on a schedule (Vercel Cron / external pinger) — requires a shared
  * secret via the `x-cron-secret` header to match
  * `AUTOMATION_CRON_SECRET`.
@@ -34,10 +35,8 @@ export async function GET(request: Request) {
     .limit(50)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!due || due.length === 0) return NextResponse.json({ processed: 0 })
-
-  let processed = 0
-  for (const row of due) {
+  let waitsProcessed = 0
+  for (const row of due ?? []) {
     const { data: claim } = await admin
       .from('automation_pending_executions')
       .update({ status: 'running' })
@@ -61,8 +60,22 @@ export async function GET(request: Request) {
       next_step_position: row.next_step_position as number,
       context: (row.context as AutomationContext) ?? {},
     })
-    processed++
+    waitsProcessed++
   }
 
-  return NextResponse.json({ processed })
+  try {
+    const ticketEvents = await processTicketAutomationEvents(50)
+    return NextResponse.json({
+      processed: waitsProcessed + ticketEvents.processed,
+      waits_processed: waitsProcessed,
+      ticket_events_processed: ticketEvents.processed,
+      ticket_events_failed: ticketEvents.failed,
+    })
+  } catch (ticketError) {
+    const message = ticketError instanceof Error ? ticketError.message : String(ticketError)
+    return NextResponse.json(
+      { error: message, waits_processed: waitsProcessed },
+      { status: 500 },
+    )
+  }
 }

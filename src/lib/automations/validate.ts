@@ -20,6 +20,23 @@ export interface ValidationIssue {
   message: string
 }
 
+const TICKET_TRIGGER_TYPES = new Set<string>([
+  'ticket_created',
+  'ticket_accepted',
+  'conversation_assigned',
+  'ticket_unassigned',
+  'ticket_transferred',
+  'ticket_department_changed',
+  'ticket_status_changed',
+  'ticket_waiting',
+  'ticket_closed',
+  'ticket_reopened',
+])
+
+export function isTicketAutomationTrigger(triggerType: string): boolean {
+  return TICKET_TRIGGER_TYPES.has(triggerType)
+}
+
 interface StepLike {
   step_type: string
   step_config: Record<string, unknown>

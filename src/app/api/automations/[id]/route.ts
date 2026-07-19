@@ -7,6 +7,7 @@ import {
   type BuilderStepInput,
 } from '@/lib/automations/steps-tree'
 import {
+  isTicketAutomationTrigger,
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate'
@@ -86,6 +87,15 @@ export async function PATCH(
   if (willBeActive) {
     const mergedTriggerType = (update.trigger_type ?? existing.trigger_type) as string
     const mergedTriggerConfig = update.trigger_config ?? existing.trigger_config
+    if (
+      isTicketAutomationTrigger(mergedTriggerType) &&
+      !process.env.AUTOMATION_CRON_SECRET
+    ) {
+      return NextResponse.json(
+        { error: 'Ticket automation worker is not configured. The automation remains inactive.' },
+        { status: 503 },
+      )
+    }
     const mergedSteps = Array.isArray(body.steps)
       ? (body.steps as { step_type: string; step_config: Record<string, unknown> }[])
       : await loadStepsTree(id)

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isTicketAutomationTrigger,
   validateStepsForActivation,
   validateTriggerForActivation,
 } from "./validate";
@@ -236,7 +237,31 @@ describe("validateTriggerForActivation", () => {
     ).toEqual([]);
   });
 
+  it.each([
+    "ticket_created",
+    "ticket_accepted",
+    "conversation_assigned",
+    "ticket_unassigned",
+    "ticket_transferred",
+    "ticket_department_changed",
+    "ticket_status_changed",
+    "ticket_waiting",
+    "ticket_closed",
+    "ticket_reopened",
+  ])("accepts the config-free ticket trigger %s", (triggerType) => {
+    expect(validateTriggerForActivation(triggerType, {})).toEqual([]);
+  });
+
   it("does not flag unknown trigger types (handled elsewhere)", () => {
     expect(validateTriggerForActivation("some_future_trigger", {})).toEqual([]);
+  });
+});
+
+describe("isTicketAutomationTrigger", () => {
+  it("recognizes ticket events but not message or time triggers", () => {
+    expect(isTicketAutomationTrigger("ticket_closed")).toBe(true);
+    expect(isTicketAutomationTrigger("conversation_assigned")).toBe(true);
+    expect(isTicketAutomationTrigger("new_message_received")).toBe(false);
+    expect(isTicketAutomationTrigger("time_based")).toBe(false);
   });
 });

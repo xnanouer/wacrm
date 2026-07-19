@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { getTemplate } from '@/lib/automations/templates'
 import { insertSteps, type BuilderStepInput } from '@/lib/automations/steps-tree'
 import {
+  isTicketAutomationTrigger,
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate'
@@ -72,6 +73,17 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: 'name and trigger_type are required' },
       { status: 400 },
+    )
+  }
+
+  if (
+    is_active &&
+    isTicketAutomationTrigger(effectiveTriggerType) &&
+    !process.env.AUTOMATION_CRON_SECRET
+  ) {
+    return NextResponse.json(
+      { error: 'Ticket automation worker is not configured. The automation was not activated.' },
+      { status: 503 },
     )
   }
 

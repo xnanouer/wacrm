@@ -24,8 +24,44 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
     pillClass: 'border-primary/30 bg-primary/10 text-primary',
   },
   conversation_assigned: {
-    label: 'Conversation Assigned',
+    label: 'Ticket Assigned',
     pillClass: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300',
+  },
+  ticket_created: {
+    label: 'Ticket Created',
+    pillClass: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+  },
+  ticket_accepted: {
+    label: 'Ticket Accepted',
+    pillClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  },
+  ticket_unassigned: {
+    label: 'Ticket Unassigned',
+    pillClass: 'border-slate-500/30 bg-slate-500/10 text-slate-300',
+  },
+  ticket_transferred: {
+    label: 'Ticket Transferred',
+    pillClass: 'border-violet-500/30 bg-violet-500/10 text-violet-300',
+  },
+  ticket_department_changed: {
+    label: 'Ticket Department Changed',
+    pillClass: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300',
+  },
+  ticket_status_changed: {
+    label: 'Ticket Status Changed',
+    pillClass: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  },
+  ticket_waiting: {
+    label: 'Ticket Waiting',
+    pillClass: 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300',
+  },
+  ticket_closed: {
+    label: 'Ticket Closed',
+    pillClass: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+  },
+  ticket_reopened: {
+    label: 'Ticket Reopened',
+    pillClass: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
   },
   tag_added: {
     label: 'Tag Added',

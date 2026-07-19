@@ -507,6 +507,15 @@ export type AutomationTriggerType =
   | 'keyword_match'
   | 'new_contact_created'
   | 'conversation_assigned'
+  | 'ticket_created'
+  | 'ticket_accepted'
+  | 'ticket_unassigned'
+  | 'ticket_transferred'
+  | 'ticket_department_changed'
+  | 'ticket_status_changed'
+  | 'ticket_waiting'
+  | 'ticket_closed'
+  | 'ticket_reopened'
   | 'tag_added'
   | 'time_based';
 
@@ -663,8 +672,10 @@ export interface AutomationLogStepResult {
 export interface AutomationLog {
   id: string;
   automation_id: string;
+  account_id: string;
   user_id: string;
   contact_id: string | null;
+  ticket_event_id?: string | null;
   trigger_event: string;
   steps_executed: AutomationLogStepResult[];
   status: AutomationLogStatus;

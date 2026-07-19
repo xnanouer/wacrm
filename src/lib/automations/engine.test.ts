@@ -11,6 +11,8 @@ const h = vi.hoisted(() => ({
     fromCalls: [] as string[],
     updateCalls: [] as { table: string; filters: [string, string, unknown][] }[],
     upsertCalls: [] as { table: string; payload: unknown }[],
+    logInsertCalls: [] as unknown[],
+    logInsertError: null as { code: string; message: string } | null,
   },
 }));
 
@@ -45,7 +47,13 @@ vi.mock("./admin-client", () => {
     }
     if (table === "automations") return { data: state.automations, error: null };
     if (table === "automation_logs") {
-      if (type === "insert") return { data: { id: "log1" }, error: null };
+      if (type === "insert") {
+        state.logInsertCalls.push(ops.payload);
+        if (state.logInsertError) {
+          return { data: null, error: state.logInsertError };
+        }
+        return { data: { id: "log1" }, error: null };
+      }
       if (type === "update") return { data: null, error: null };
       return { data: { steps_executed: [], status: "success" }, error: null };
     }
@@ -107,6 +115,8 @@ beforeEach(() => {
   h.state.fromCalls = [];
   h.state.updateCalls = [];
   h.state.upsertCalls = [];
+  h.state.logInsertCalls = [];
+  h.state.logInsertError = null;
 });
 
 describe("runAutomationsForTrigger — tenant isolation", () => {
@@ -220,6 +230,51 @@ describe("update_contact_field — custom fields", () => {
     });
 
     expect(h.state.upsertCalls).toHaveLength(0);
+    expect(h.state.updateCalls).toHaveLength(0);
+  });
+});
+
+describe("ticket-event idempotency", () => {
+  it("stores the internal ticket event id on the execution log", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [
+      { ...automationWithUpdateStep(), trigger_type: "ticket_closed" },
+    ];
+    h.state.steps = [updateStep()];
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "ticket_closed",
+      contactId: "c1",
+      ticketEventId: "event-1",
+      context: { ticket_event_id: "event-1" },
+    });
+
+    expect(h.state.logInsertCalls).toHaveLength(1);
+    expect(h.state.logInsertCalls[0]).toMatchObject({
+      automation_id: "a1",
+      ticket_event_id: "event-1",
+      trigger_event: "ticket_closed",
+    });
+  });
+
+  it("skips an execution already claimed by the unique log key", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [
+      { ...automationWithUpdateStep(), trigger_type: "ticket_closed" },
+    ];
+    h.state.steps = [updateStep()];
+    h.state.logInsertError = { code: "23505", message: "duplicate key" };
+
+    await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "ticket_closed",
+      contactId: "c1",
+      ticketEventId: "event-1",
+      context: { ticket_event_id: "event-1" },
+    });
+
+    expect(h.state.fromCalls).not.toContain("automation_steps");
     expect(h.state.updateCalls).toHaveLength(0);
   });
 });
