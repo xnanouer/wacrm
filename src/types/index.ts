@@ -156,6 +156,26 @@ export interface ContactNote {
 }
 
 export type ConversationStatus = 'pending' | 'open' | 'waiting' | 'closed';
+export type ConversationChannel = 'whatsapp' | 'facebook' | 'instagram';
+
+export type ChannelConnectionStatus =
+  'disconnected' | 'pending' | 'connected' | 'error';
+
+export interface ChannelConnection {
+  id: string;
+  account_id: string;
+  channel: Exclude<ConversationChannel, 'whatsapp'>;
+  external_account_id: string;
+  display_name: string;
+  status: ChannelConnectionStatus;
+  scopes: string[];
+  metadata: Record<string, unknown>;
+  connected_at?: string;
+  token_expires_at?: string;
+  created_by_user_id?: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface Department {
   id: string;
@@ -241,6 +261,11 @@ export interface Conversation {
   user_id: string;
   contact_id: string;
   status: ConversationStatus;
+  /** Defaults to WhatsApp for pre-034 rows and older API payloads. */
+  channel?: ConversationChannel;
+  channel_connection_id?: string;
+  external_conversation_id?: string;
+  external_participant_id?: string;
   assigned_agent_id?: string;
   department_id?: string;
   whatsapp_config_id?: string;

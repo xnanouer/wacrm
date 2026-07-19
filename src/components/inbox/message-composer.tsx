@@ -95,6 +95,7 @@ interface MessageComposerProps {
   onClearReply?: () => void;
   insertDraft?: { id: string; text: string } | null;
   ticketLocked?: boolean;
+  channelUnavailableReason?: string;
 }
 
 function formatDuration(seconds: number): string {
@@ -118,6 +119,7 @@ export function MessageComposer({
   onClearReply,
   insertDraft,
   ticketLocked = false,
+  channelUnavailableReason,
 }: MessageComposerProps) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -163,7 +165,8 @@ export function MessageComposer({
   // For solo users this is always true — single-owner accounts pass
   // every capability — so the disabled branch is a no-op there.
   const canSend = useCan('send-messages');
-  const readOnly = !canSend || ticketLocked;
+  const channelUnavailable = Boolean(channelUnavailableReason);
+  const readOnly = !canSend || ticketLocked || channelUnavailable;
   // Media (like free-form text) is only allowed inside the 24h window.
   const inputsDisabled = readOnly || sessionExpired;
 
@@ -468,7 +471,12 @@ export function MessageComposer({
           />
         </div>
       )}
-      {sessionExpired && (
+      {channelUnavailable && (
+        <div className="mb-2 rounded-lg bg-blue-500/10 px-3 py-2">
+          <p className="text-xs text-blue-400">{channelUnavailableReason}</p>
+        </div>
+      )}
+      {!channelUnavailable && sessionExpired && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2">
           <p className="text-xs text-amber-400">
             24-hour session expired. Use a template to re-engage.
@@ -484,7 +492,7 @@ export function MessageComposer({
           </Button>
         </div>
       )}
-      {ticketLocked && !sessionExpired && (
+      {ticketLocked && !channelUnavailable && !sessionExpired && (
         <div className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2">
           <p className="text-xs text-amber-500">
             Acepta el ticket o solicita una asignación antes de responder.
@@ -565,7 +573,8 @@ export function MessageComposer({
               disabled={inputsDisabled || busy}
               title={
                 readOnly
-                  ? "Read-only — your role can't send messages"
+                  ? (channelUnavailableReason ??
+                    "Read-only — your role can't send messages")
                   : inputsDisabled
                     ? undefined
                     : 'Attach media'
@@ -639,7 +648,8 @@ export function MessageComposer({
             onKeyDown={handleKeyDown}
             placeholder={
               readOnly
-                ? 'Read-only — viewers can browse but not reply'
+                ? (channelUnavailableReason ??
+                  'Read-only — viewers can browse but not reply')
                 : sessionExpired
                   ? 'Session expired - use a template'
                   : 'Type a message... (Shift+Enter for new line)'
@@ -650,7 +660,10 @@ export function MessageComposer({
             // wrapping pattern doesn't apply to non-button inputs.
             // The placeholder text also surfaces the read-only state.
             title={
-              readOnly ? "Read-only — your role can't send messages" : undefined
+              readOnly
+                ? (channelUnavailableReason ??
+                  "Read-only — your role can't send messages")
+                : undefined
             }
             className={cn(
               'border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 flex-1 resize-none rounded-xl border px-4 py-2.5 text-sm transition-colors outline-none',

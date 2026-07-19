@@ -8,11 +8,18 @@ import {
   normalizeConversations,
 } from '@/lib/inbox/conversations';
 import { cn } from '@/lib/utils';
-import type { Conversation, ConversationStatus, Profile, Tag } from '@/types';
+import type {
+  Conversation,
+  ConversationChannel,
+  ConversationStatus,
+  Profile,
+  Tag,
+} from '@/types';
 import {
   Building2,
   ChevronDown,
   Inbox,
+  MessagesSquare,
   Search,
   Smartphone,
   UserRoundCheck,
@@ -30,6 +37,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TicketStatusBadge } from './ticket-status-badge';
+import { ChannelBadge } from './channel-badge';
+import {
+  CHANNEL_OPTIONS,
+  getChannelMeta,
+  resolveConversationChannel,
+} from '@/lib/channels/channel-meta';
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -47,6 +60,7 @@ interface ConversationListProps {
 
 type InboxFilter = ConversationStatus | 'all' | 'unread';
 type AssignmentFilter = 'all' | 'assigned' | 'unassigned' | string;
+type ChannelFilter = ConversationChannel | 'all';
 
 const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = [
   { label: 'Todos', value: 'all' },
@@ -72,6 +86,7 @@ export function ConversationList({
 }: ConversationListProps) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<InboxFilter>('all');
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
   const [assignmentFilter, setAssignmentFilter] =
     useState<AssignmentFilter>('all');
   const [loading, setLoading] = useState(true);
@@ -218,6 +233,13 @@ export function ConversationList({
       result = result.filter((c) => c.status === filter);
     }
 
+    if (channelFilter !== 'all') {
+      result = result.filter(
+        (conversation) =>
+          resolveConversationChannel(conversation.channel) === channelFilter
+      );
+    }
+
     if (assignmentFilter === 'assigned') {
       result = result.filter((c) => Boolean(c.assigned_agent_id));
     } else if (assignmentFilter === 'unassigned') {
@@ -259,6 +281,7 @@ export function ConversationList({
   }, [
     conversations,
     filter,
+    channelFilter,
     assignmentFilter,
     search,
     selectedTagIds,
@@ -278,13 +301,15 @@ export function ConversationList({
     setSelectedCompany(null);
     setSelectedDepartmentId(null);
     setSelectedWhatsappId(null);
+    setChannelFilter('all');
   }, []);
 
   const hasContactFilters =
     selectedTagIds.length > 0 ||
     selectedCompany !== null ||
     selectedDepartmentId !== null ||
-    selectedWhatsappId !== null;
+    selectedWhatsappId !== null ||
+    channelFilter !== 'all';
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -345,6 +370,51 @@ export function ConversationList({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs">
+              <MessagesSquare className="size-3" />
+              {channelFilter === 'all'
+                ? 'Todos los canales'
+                : getChannelMeta(channelFilter).label}
+              <ChevronDown className="h-3 w-3" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="border-border bg-popover"
+            >
+              <DropdownMenuItem
+                onClick={() => setChannelFilter('all')}
+                className={cn(
+                  'text-sm',
+                  channelFilter === 'all'
+                    ? 'text-primary'
+                    : 'text-popover-foreground'
+                )}
+              >
+                Todos los canales
+              </DropdownMenuItem>
+              {CHANNEL_OPTIONS.map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  onClick={() => {
+                    setChannelFilter(option.value);
+                    if (option.value !== 'whatsapp') {
+                      setSelectedWhatsappId(null);
+                    }
+                  }}
+                  className={cn(
+                    'text-sm',
+                    channelFilter === option.value
+                      ? 'text-primary'
+                      : 'text-popover-foreground'
+                  )}
+                >
+                  <ChannelBadge channel={option.value} className="mr-1" />
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <DropdownMenu>
             <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-2.5 text-xs">
               {activeFilter?.label ?? 'All'}
@@ -443,34 +513,37 @@ export function ConversationList({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs">
-              <Smartphone className="size-3" />
-              <span className="max-w-24 truncate">
-                {whatsappNumbers.find((item) => item.id === selectedWhatsappId)
-                  ?.display_name ?? 'Número'}
-              </span>
-              <ChevronDown className="size-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              <DropdownMenuItem onClick={() => setSelectedWhatsappId(null)}>
-                Todos los números
-              </DropdownMenuItem>
-              {whatsappNumbers.map((number) => (
-                <DropdownMenuItem
-                  key={number.id}
-                  onClick={() => setSelectedWhatsappId(number.id)}
-                >
-                  {number.display_name ||
-                    number.display_phone ||
-                    number.phone_number_id}
+          {(channelFilter === 'all' || channelFilter === 'whatsapp') && (
+            <DropdownMenu>
+              <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs">
+                <Smartphone className="size-3" />
+                <span className="max-w-24 truncate">
+                  {whatsappNumbers.find(
+                    (item) => item.id === selectedWhatsappId
+                  )?.display_name ?? 'Número'}
+                </span>
+                <ChevronDown className="size-3" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="border-border bg-popover"
+              >
+                <DropdownMenuItem onClick={() => setSelectedWhatsappId(null)}>
+                  Todos los números
                 </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {whatsappNumbers.map((number) => (
+                  <DropdownMenuItem
+                    key={number.id}
+                    onClick={() => setSelectedWhatsappId(number.id)}
+                  >
+                    {number.display_name ||
+                      number.display_phone ||
+                      number.phone_number_id}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           {tags.length > 0 && (
             <DropdownMenu>
@@ -710,6 +783,7 @@ function ConversationItem({
           </p>
         </div>
         <div className="mt-2 flex min-w-0 items-center gap-1.5">
+          <ChannelBadge channel={conversation.channel} compact />
           <TicketStatusBadge status={conversation.status} compact />
           <span className="border-border bg-background text-muted-foreground inline-flex min-w-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]">
             <UserRoundCheck className="size-2.5 shrink-0" />

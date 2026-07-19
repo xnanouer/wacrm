@@ -58,6 +58,11 @@ import { buildReplyPreview } from './reply-quote';
 import { toast } from 'sonner';
 import { TicketStatusBadge } from './ticket-status-badge';
 import { QuickReplyPicker } from './quick-reply-picker';
+import { ChannelBadge } from './channel-badge';
+import {
+  getChannelMeta,
+  resolveConversationChannel,
+} from '@/lib/channels/channel-meta';
 
 interface ReplyDraft {
   id: string;
@@ -862,6 +867,9 @@ export function MessageThread({
   }
 
   const displayName = contact.name || contact.phone;
+  const conversationChannel = resolveConversationChannel(conversation.channel);
+  const channelMeta = getChannelMeta(conversationChannel);
+  const isWhatsAppChannel = conversationChannel === 'whatsapp';
   const messageGroups = groupMessagesByDate(messages);
   const assignedAgentId = conversation.assigned_agent_id ?? null;
   const currentAssignee = profiles.find((p) => p.user_id === assignedAgentId);
@@ -909,22 +917,26 @@ export function MessageThread({
             <h2 className="text-foreground truncate text-sm font-semibold">
               {displayName}
             </h2>
-            <p className="text-muted-foreground truncate text-xs">
-              {contact.phone} · WhatsApp
-            </p>
+            <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
+              <span className="truncate">{contact.phone}</span>
+              <span aria-hidden="true">·</span>
+              <ChannelBadge channel={conversationChannel} />
+            </div>
           </div>
           {/* Session timer badge — hidden on the narrowest phones so
               the name + back arrow keep their room. */}
-          <Badge
-            variant="outline"
-            className={cn(
-              'border-border ml-1 hidden gap-1 text-[10px] sm:ml-2 sm:inline-flex',
-              sessionInfo.expired ? 'text-red-400' : 'text-primary'
-            )}
-          >
-            <Clock className="h-3 w-3" />
-            {sessionInfo.remaining}
-          </Badge>
+          {isWhatsAppChannel && (
+            <Badge
+              variant="outline"
+              className={cn(
+                'border-border ml-1 hidden gap-1 text-[10px] sm:ml-2 sm:inline-flex',
+                sessionInfo.expired ? 'text-red-400' : 'text-primary'
+              )}
+            >
+              <Clock className="h-3 w-3" />
+              {sessionInfo.remaining}
+            </Badge>
+          )}
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2">
@@ -1266,6 +1278,7 @@ export function MessageThread({
                         onReact={(emoji) => {
                           if (emoji) void postReaction(msg.id, emoji);
                         }}
+                        canReact={isWhatsAppChannel}
                       >
                         <MessageBubble
                           message={msg}
@@ -1287,13 +1300,18 @@ export function MessageThread({
       {/* Composer */}
       <MessageComposer
         conversationId={conversation.id}
-        sessionExpired={sessionInfo.expired}
+        sessionExpired={isWhatsAppChannel && sessionInfo.expired}
         onSend={handleSend}
         onSendMedia={handleSendMedia}
         onOpenTemplates={handleOpenTemplates}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
         insertDraft={composerInsertion}
+        channelUnavailableReason={
+          isWhatsAppChannel
+            ? undefined
+            : `El envío por ${channelMeta.label} se habilitará cuando conectemos y validemos ese canal.`
+        }
         ticketLocked={
           conversation.status === 'pending' ||
           conversation.status === 'closed' ||
@@ -1301,11 +1319,13 @@ export function MessageThread({
         }
       />
 
-      <TemplatePicker
-        open={templateModalOpen}
-        onOpenChange={setTemplateModalOpen}
-        onSelect={handleSendTemplate}
-      />
+      {isWhatsAppChannel && (
+        <TemplatePicker
+          open={templateModalOpen}
+          onOpenChange={setTemplateModalOpen}
+          onSelect={handleSendTemplate}
+        />
+      )}
     </div>
   );
 }
