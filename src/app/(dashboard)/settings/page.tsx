@@ -10,7 +10,10 @@ import { SettingsOverview } from '@/components/settings/settings-overview';
 import { ProfileForm } from '@/components/settings/profile-form';
 import { SecurityPanel } from '@/components/settings/security-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
+import { PersonalQuickReplies } from '@/components/settings/personal-quick-replies';
+import { CompanySettings } from '@/components/settings/company-settings';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
+import { ChannelsSettings } from '@/components/settings/channels-settings';
 import { TicketingSettings } from '@/components/settings/ticketing-settings';
 import { TemplateManager } from '@/components/settings/template-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
@@ -19,20 +22,25 @@ import { MembersTab } from '@/components/settings/members-tab';
 import { ApiKeysSettings } from '@/components/settings/api-keys-settings';
 import {
   resolveSection,
+  settingsSectionsForRole,
   type SettingsSection,
 } from '@/components/settings/settings-sections';
 
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { defaultCurrency } = useAuth();
+  const { defaultCurrency, accountRole, profileLoading } = useAuth();
   const { mode } = useTheme();
 
   // The URL (`?tab=`) is the single source of truth for the active
   // section — deep-linkable, and it keeps the existing links in the
   // app sidebar/header working. Legacy tab values (tags, custom-fields)
   // resolve onto their new home; unknown/empty → the Overview landing.
-  const section = resolveSection(searchParams.get('tab'));
+  const allowedSections = settingsSectionsForRole(accountRole);
+  const requestedSection = resolveSection(searchParams.get('tab'));
+  const section = allowedSections.includes(requestedSection)
+    ? requestedSection
+    : allowedSections[0];
 
   const go = (next: SettingsSection) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -56,7 +64,10 @@ export default function SettingsPage() {
     profile: <ProfileForm />,
     security: <SecurityPanel />,
     appearance: <AppearancePanel />,
+    'quick-replies': <PersonalQuickReplies />,
+    company: <CompanySettings />,
     whatsapp: <WhatsAppConfig />,
+    channels: <ChannelsSettings />,
     ticketing: <TicketingSettings />,
     templates: <TemplateManager />,
     fields: <FieldsAndTagsPanel />,
@@ -65,20 +76,32 @@ export default function SettingsPage() {
     api: <ApiKeysSettings />,
   };
 
+  if (profileLoading) {
+    return (
+      <div className="text-muted-foreground py-12 text-sm">
+        Cargando configuración…
+      </div>
+    );
+  }
+
   return (
-    <div>
+    <div className="nexora-page-stack">
       <div>
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Settings
-        </h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Everything in one place — your account and your workspace. Pick a
-          section to manage it.
+        <p className="nexora-kicker">Tu espacio de trabajo</p>
+        <h1 className="nexora-title mt-2">Configuración</h1>
+        <p className="nexora-description mt-3">
+          Administra tu cuenta, equipo, canales y preferencias desde un solo
+          lugar.
         </p>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[236px_minmax(0,1fr)] lg:items-start">
-        <SettingsRail active={section} onSelect={go} hints={hints} />
+      <div className="grid gap-8 lg:grid-cols-[292px_minmax(0,1fr)] lg:items-start">
+        <SettingsRail
+          active={section}
+          onSelect={go}
+          hints={hints}
+          sections={allowedSections}
+        />
         <div className="min-w-0">{panel[section]}</div>
       </div>
     </div>

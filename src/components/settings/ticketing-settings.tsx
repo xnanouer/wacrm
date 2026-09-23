@@ -16,6 +16,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { SettingsPanelHead } from './settings-panel-head';
+import { TagManager } from './tag-manager';
 
 export function TicketingSettings() {
   const { canEditSettings, accountRole, user } = useAuth();
@@ -198,6 +199,7 @@ export function TicketingSettings() {
       />
 
       <div className="space-y-6">
+        <TagManager />
         <Card>
           <CardContent className="space-y-4 p-5">
             <div>

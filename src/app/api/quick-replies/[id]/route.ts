@@ -13,7 +13,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ctx = await requireRole('supervisor');
+    const ctx = await requireRole('agent');
     const limit = checkRateLimit(
       `quick-reply:${ctx.userId}`,
       RATE_LIMITS.adminAction
@@ -95,7 +95,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const ctx = await requireRole('supervisor');
+    const ctx = await requireRole('agent');
     const limit = checkRateLimit(
       `quick-reply:${ctx.userId}`,
       RATE_LIMITS.adminAction

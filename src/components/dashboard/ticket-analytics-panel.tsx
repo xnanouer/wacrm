@@ -28,9 +28,10 @@ import type { AccountMember, Department } from '@/types';
 
 interface WhatsAppOption {
   id: string;
+  connection_name: string;
   display_name: string | null;
   display_phone: string | null;
-  phone_number_id: string;
+  phone_number_id: string | null;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -76,7 +77,9 @@ export function TicketAnalyticsPanel() {
             fetch('/api/account/members', { cache: 'no-store' }),
             db
               .from('whatsapp_config')
-              .select('id, display_name, display_phone, phone_number_id')
+              .select(
+                'id, connection_name, display_name, display_phone, phone_number_id'
+              )
               .order('created_at'),
           ]);
 
@@ -218,9 +221,11 @@ export function TicketAnalyticsPanel() {
           options={whatsappConfigs.map((config) => ({
             value: config.id,
             label:
+              config.connection_name ||
               config.display_name ||
               config.display_phone ||
-              config.phone_number_id,
+              config.phone_number_id ||
+              'WhatsApp',
           }))}
           allLabel={
             whatsappConfigs.length === 0

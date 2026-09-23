@@ -25,10 +25,12 @@ export function SettingsRail({
   active,
   onSelect,
   hints,
+  sections = SETTINGS_SECTIONS,
 }: {
   active: SettingsSection;
   onSelect: (section: SettingsSection) => void;
   hints?: Partial<Record<SettingsSection, ReactNode>>;
+  sections?: readonly SettingsSection[];
 }) {
   const activeRef = useRef<HTMLButtonElement>(null);
 
@@ -36,7 +38,8 @@ export function SettingsRail({
   // the rail is a static column, so skip.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (window.matchMedia(`(min-width: ${RAIL_DESKTOP_MIN_PX}px)`).matches) return;
+    if (window.matchMedia(`(min-width: ${RAIL_DESKTOP_MIN_PX}px)`).matches)
+      return;
     activeRef.current?.scrollIntoView({
       inline: 'center',
       block: 'nearest',
@@ -48,22 +51,20 @@ export function SettingsRail({
     <nav
       aria-label="Settings sections"
       className={cn(
-        'flex gap-1 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-        'border-b border-border',
-        'lg:sticky lg:top-0 lg:flex-col lg:overflow-visible lg:border-b-0 lg:pb-0',
+        'flex [scrollbar-width:none] gap-2 overflow-x-auto pb-3 [&::-webkit-scrollbar]:hidden',
+        'border-border border-b',
+        'lg:sticky lg:top-0 lg:flex-col lg:overflow-visible lg:border-b-0 lg:pb-0'
       )}
     >
       {RAIL_GROUPS.map(({ label, group }) => {
-        const items = SETTINGS_SECTIONS.filter(
-          (s) => SECTION_META[s].group === group,
-        );
+        const items = sections.filter((s) => SECTION_META[s].group === group);
         return (
           <div
             key={group}
-            className="flex shrink-0 gap-1 lg:flex-col lg:gap-0.5"
+            className="flex shrink-0 gap-1.5 lg:flex-col lg:gap-1"
           >
             {label ? (
-              <div className="hidden px-3 pt-3.5 pb-1.5 text-[11px] font-semibold tracking-[0.09em] text-muted-foreground uppercase lg:block">
+              <div className="text-muted-foreground hidden px-4 pt-4 pb-2 text-xs font-bold tracking-[0.12em] uppercase lg:block">
                 {label}
               </div>
             ) : null}
@@ -79,20 +80,20 @@ export function SettingsRail({
                   onClick={() => onSelect(s)}
                   aria-current={isActive ? 'page' : undefined}
                   className={cn(
-                    'flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium whitespace-nowrap transition-colors',
+                    'flex min-h-12 shrink-0 items-center gap-3 rounded-2xl px-4 py-3 text-left text-[15px] font-medium whitespace-nowrap transition-all',
                     'lg:w-full',
                     isActive
                       ? 'bg-primary-soft text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   )}
                 >
-                  <Icon className="size-4 shrink-0" />
+                  <Icon className="size-[18px] shrink-0" />
                   <span className="flex-1">{meta.label}</span>
                   {hints?.[s] != null ? (
                     <span
                       className={cn(
                         'hidden items-center gap-1.5 text-xs lg:inline-flex',
-                        isActive ? 'text-primary' : 'text-muted-foreground',
+                        isActive ? 'text-primary' : 'text-muted-foreground'
                       )}
                     >
                       {hints[s]}

@@ -1,12 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Loader2, Pencil, Plus, Tag as TagIcon, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Loader2, Plus, Tag as TagIcon, X } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
-import { useAuth } from '@/hooks/use-auth';
+
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Card,
   CardContent,
@@ -14,168 +12,167 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import type { Tag } from '@/types';
 
 const PRESET_COLORS = [
-  { name: 'Red', value: '#ef4444' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Amber', value: '#f59e0b' },
-  { name: 'Emerald', value: '#10b981' },
-  { name: 'Cyan', value: '#06b6d4' },
-  { name: 'Blue', value: '#3b82f6' },
-  { name: 'Violet', value: '#8b5cf6' },
-  { name: 'Pink', value: '#ec4899' },
-];
+  { name: 'Rojo', value: '#ef4444' },
+  { name: 'Naranjo', value: '#f97316' },
+  { name: 'Ámbar', value: '#f59e0b' },
+  { name: 'Verde', value: '#10b981' },
+  { name: 'Cian', value: '#06b6d4' },
+  { name: 'Azul', value: '#3b82f6' },
+  { name: 'Violeta', value: '#8b5cf6' },
+  { name: 'Rosa', value: '#ec4899' },
+] as const;
 
-/**
- * Tags card — colour-coded contact labels. Creation is an inline row
- * (name + colour swatch + Add); deletion goes through a confirmation
- * dialog since it detaches the tag from every contact.
- */
 export function TagManager() {
-  const supabase = createClient();
-  const { user, accountId, loading: authLoading } = useAuth();
-
-  const [loading, setLoading] = useState(true);
   const [tags, setTags] = useState<Tag[]>([]);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [tagToDelete, setTagToDelete] = useState<Tag | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [newTagName, setNewTagName] = useState('');
-  const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[3].value);
+  const [name, setName] = useState('');
+  const [color, setColor] = useState('#10b981');
+  const [editing, setEditing] = useState<Tag | null>(null);
+  const [deleting, setDeleting] = useState<Tag | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState('#10b981');
+
+  const load = useCallback(async () => {
+    const response = await fetch('/api/tags', { cache: 'no-store' });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) setTags(payload.tags ?? []);
+    else toast.error(payload.error ?? 'No se pudieron cargar las etiquetas');
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      setLoading(false);
+    // Data arrives asynchronously; state is never changed during render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+
+  async function createTag() {
+    if (!name.trim()) return;
+    setSaving(true);
+    const response = await fetch('/api/tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), color }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      toast.error(payload.error ?? 'No se pudo crear la etiqueta');
       return;
     }
-    fetchTags(user.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user?.id]);
-
-  async function fetchTags(userId: string) {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('tags')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-      setTags(data || []);
-    } catch (err) {
-      console.error('Failed to fetch tags:', err);
-      toast.error('Failed to load tags');
-    } finally {
-      setLoading(false);
-    }
+    setName('');
+    setColor('#10b981');
+    toast.success('Etiqueta creada');
+    await load();
   }
 
-  async function handleCreate() {
-    if (!newTagName.trim()) {
-      toast.error('Tag name is required');
+  function startEdit(tag: Tag) {
+    setEditing(tag);
+    setEditName(tag.name);
+    setEditColor(tag.color);
+  }
+
+  async function updateTag() {
+    if (!editing || !editName.trim()) return;
+    setSaving(true);
+    const response = await fetch(`/api/tags/${editing.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editName.trim(), color: editColor }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      toast.error(payload.error ?? 'No se pudo actualizar la etiqueta');
       return;
     }
+    setEditing(null);
+    toast.success('Etiqueta actualizada');
+    await load();
+  }
 
-    try {
-      setSaving(true);
-      if (!user || !accountId) {
-        toast.error('Not authenticated');
-        return;
-      }
-
-      // account_id is mandatory on every account-scoped insert (NOT
-      // NULL + RLS, no DB default).
-      const { error } = await supabase.from('tags').insert({
-        user_id: user.id,
-        account_id: accountId,
-        name: newTagName.trim(),
-        color: selectedColor,
-      });
-
-      if (error) throw error;
-
-      toast.success('Tag created');
-      setNewTagName('');
-      setSelectedColor(PRESET_COLORS[3].value);
-      await fetchTags(user.id);
-    } catch (err) {
-      console.error('Create error:', err);
-      toast.error('Failed to create tag');
-    } finally {
-      setSaving(false);
+  async function deleteTag() {
+    if (!deleting) return;
+    setSaving(true);
+    const response = await fetch(`/api/tags/${deleting.id}`, {
+      method: 'DELETE',
+    });
+    const payload = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      toast.error(payload.error ?? 'No se pudo eliminar la etiqueta');
+      return;
     }
+    setTags((current) => current.filter((tag) => tag.id !== deleting.id));
+    setDeleting(null);
+    toast.success('Etiqueta eliminada');
   }
 
-  function confirmDelete(tag: Tag) {
-    setTagToDelete(tag);
-    setDeleteDialogOpen(true);
-  }
-
-  async function handleDelete() {
-    if (!tagToDelete) return;
-
-    try {
-      setDeleting(true);
-      const { error } = await supabase
-        .from('tags')
-        .delete()
-        .eq('id', tagToDelete.id);
-
-      if (error) throw error;
-
-      toast.success('Tag deleted');
-      setTags((prev) => prev.filter((t) => t.id !== tagToDelete.id));
-      setDeleteDialogOpen(false);
-      setTagToDelete(null);
-    } catch (err) {
-      console.error('Delete error:', err);
-      toast.error('Failed to delete tag');
-    } finally {
-      setDeleting(false);
-    }
-  }
+  const colorPicker = (selected: string, onSelect: (next: string) => void) => (
+    <div className="flex flex-wrap gap-1.5">
+      {PRESET_COLORS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onSelect(option.value)}
+          aria-label={`Usar color ${option.name}`}
+          aria-pressed={selected === option.value}
+          className={cn(
+            'size-7 rounded-md transition-transform hover:scale-110',
+            selected === option.value &&
+              'outline-primary outline outline-2 outline-offset-2'
+          )}
+          style={{ backgroundColor: option.value }}
+        />
+      ))}
+    </div>
+  );
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-foreground">
-          <TagIcon className="size-4 text-primary" />
-          Tags
+        <CardTitle className="text-foreground flex items-center gap-2">
+          <TagIcon className="text-primary size-4" />
+          Etiquetas de ticket
         </CardTitle>
-        <CardDescription className="text-muted-foreground">
-          Colour-coded labels for grouping and filtering contacts.
+        <CardDescription>
+          Crea estados como Aprobado, Pendiente o Rechazado. Los agentes podrán
+          aplicarlos desde los tickets que atienden.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-5">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="size-6 animate-spin text-primary" />
-          </div>
+          <Loader2 className="text-primary mx-auto my-6 size-6 animate-spin" />
         ) : (
           <>
-            {tags.length > 0 ? (
+            {tags.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                Aún no hay etiquetas configuradas.
+              </p>
+            ) : (
               <div className="flex flex-wrap gap-2">
                 {tags.map((tag) => (
                   <span
                     key={tag.id}
-                    className="group inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors"
+                    className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-sm font-medium"
                     style={{
                       backgroundColor: `${tag.color}20`,
                       color: tag.color,
-                      border: `1px solid ${tag.color}40`,
+                      borderColor: `${tag.color}40`,
                     }}
                   >
                     <span
@@ -185,101 +182,97 @@ export function TagManager() {
                     {tag.name}
                     <button
                       type="button"
-                      onClick={() => confirmDelete(tag)}
-                      aria-label={`Delete ${tag.name}`}
-                      className="ml-0.5 rounded-full p-0.5 opacity-60 transition-opacity hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                      onClick={() => startEdit(tag)}
+                      className="ml-1 rounded-full p-0.5 opacity-70 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                      aria-label={`Editar ${tag.name}`}
                     >
-                      <X className="size-3" />
+                      <Pencil className="size-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleting(tag)}
+                      className="rounded-full p-0.5 opacity-70 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                      aria-label={`Eliminar ${tag.name}`}
+                    >
+                      <Trash2 className="size-3" />
                     </button>
                   </span>
                 ))}
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No tags yet — create your first one below.
-              </p>
             )}
 
-            {/* Inline create row */}
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="border-border flex flex-wrap items-center gap-3 border-t pt-4">
               <Input
-                placeholder="e.g. Newsletter"
-                value={newTagName}
-                onChange={(e) => setNewTagName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreate();
-                }}
-                disabled={saving}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && void createTag()}
+                placeholder="Ejemplo: Aprobado"
                 maxLength={40}
-                className="min-w-[180px] flex-1"
+                className="min-w-52 flex-1"
               />
-              <div className="flex gap-1.5">
-                {PRESET_COLORS.map((color) => (
-                  <button
-                    key={color.value}
-                    type="button"
-                    onClick={() => setSelectedColor(color.value)}
-                    aria-label={`Use ${color.name}`}
-                    aria-pressed={selectedColor === color.value}
-                    className={cn(
-                      'size-6 rounded-md transition-transform hover:scale-110',
-                      selectedColor === color.value &&
-                        'outline outline-2 outline-offset-2 outline-primary',
-                    )}
-                    style={{ backgroundColor: color.value }}
-                    title={color.name}
-                  />
-                ))}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCreate}
-                disabled={saving || !newTagName.trim()}
-              >
+              {colorPicker(color, setColor)}
+              <Button onClick={createTag} disabled={saving || !name.trim()}>
                 {saving ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
                   <Plus className="size-4" />
                 )}
-                Add tag
+                Crear etiqueta
               </Button>
             </div>
           </>
         )}
       </CardContent>
 
-      {/* Delete confirmation */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      <Dialog
+        open={!!editing}
+        onOpenChange={(open) => !open && setEditing(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar etiqueta</DialogTitle>
+            <DialogDescription>
+              El cambio aparecerá en todos los tickets que ya usan esta
+              etiqueta.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={editName}
+            onChange={(event) => setEditName(event.target.value)}
+            maxLength={40}
+          />
+          {colorPicker(editColor, setEditColor)}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditing(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={updateTag} disabled={saving || !editName.trim()}>
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+              Guardar cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleting}
+        onOpenChange={(open) => !open && setDeleting(null)}
+      >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete tag</DialogTitle>
+            <DialogTitle>Eliminar etiqueta</DialogTitle>
             <DialogDescription>
-              Delete the tag &quot;{tagToDelete?.name}&quot;? This removes it
-              from all contacts and cannot be undone.
+              ¿Eliminar “{deleting?.name}”? También se quitará de todos los
+              contactos.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setDeleteDialogOpen(false)}
-              disabled={deleting}
-            >
-              Cancel
+            <Button variant="ghost" onClick={() => setDeleting(null)}>
+              Cancelar
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                'Delete tag'
-              )}
+            <Button variant="destructive" onClick={deleteTag} disabled={saving}>
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+              Eliminar
             </Button>
           </DialogFooter>
         </DialogContent>

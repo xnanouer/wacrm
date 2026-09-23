@@ -30,6 +30,37 @@ describe('parseTicketAction', () => {
     });
   });
 
+  it('requires a note and at least one valid tag to resolve', () => {
+    expect(
+      parseTicketAction({
+        action: 'resolve',
+        note: '  Cliente confirma que su solicitud fue resuelta.  ',
+        tagIds: ['11111111-1111-4111-8111-111111111111'],
+      })
+    ).toEqual({
+      action: 'resolve',
+      note: 'Cliente confirma que su solicitud fue resuelta.',
+      tagIds: ['11111111-1111-4111-8111-111111111111'],
+    });
+
+    expect(() =>
+      parseTicketAction({ action: 'resolve', note: '', tagIds: [] })
+    ).toThrow('Debes escribir el motivo del cierre');
+    expect(() =>
+      parseTicketAction({
+        action: 'resolve',
+        note: 'Finalizado',
+        tagIds: [],
+      })
+    ).toThrow('Debes seleccionar al menos una etiqueta');
+  });
+
+  it('rejects closing through the generic status action', () => {
+    expect(() =>
+      parseTicketAction({ action: 'status', status: 'closed' })
+    ).toThrow('Para resolver debes seleccionar una etiqueta');
+  });
+
   it('rejects unknown actions and invalid statuses', () => {
     expect(() => parseTicketAction({ action: 'delete' })).toThrow(
       TicketActionError

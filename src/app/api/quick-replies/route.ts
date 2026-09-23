@@ -11,11 +11,14 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import { isUuid } from '@/lib/validation/uuid';
+import { hasMinRole } from '@/lib/auth/roles';
 
 export async function GET(request: Request) {
   try {
     const ctx = await getCurrentAccount();
-    const departmentId = new URL(request.url).searchParams.get('departmentId');
+    const searchParams = new URL(request.url).searchParams;
+    const departmentId = searchParams.get('departmentId');
+    const mine = searchParams.get('mine') === 'true';
     if (departmentId && !isUuid(departmentId)) {
       return NextResponse.json(
         { error: 'Invalid departmentId' },
@@ -26,9 +29,15 @@ export async function GET(request: Request) {
       .from('quick_replies')
       .select('*')
       .eq('account_id', ctx.accountId)
-      .eq('is_active', true)
       .order('title');
-    if (departmentId)
+    if (mine) {
+      query = query
+        .eq('visibility', 'personal')
+        .eq('created_by_user_id', ctx.userId);
+    } else {
+      query = query.eq('is_active', true);
+    }
+    if (departmentId && !mine)
       query = query.or(
         `department_id.is.null,department_id.eq.${departmentId}`
       );
@@ -46,7 +55,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole('supervisor');
+    const ctx = await requireRole('agent');
     const limit = checkRateLimit(
       `quick-reply:${ctx.userId}`,
       RATE_LIMITS.adminAction
@@ -60,6 +69,7 @@ export async function POST(request: Request) {
         ? body.shortcut.trim()
         : null;
     const departmentId = body.departmentId ?? null;
+    const visibility = body.visibility === 'personal' ? 'personal' : 'shared';
     if (!title || title.length > 80 || !text || text.length > 4000) {
       return NextResponse.json(
         { error: 'Invalid quick reply' },
@@ -78,15 +88,22 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    if (visibility === 'shared' && !hasMinRole(ctx.role, 'supervisor')) {
+      return NextResponse.json(
+        { error: 'Los agentes solo pueden crear respuestas personales' },
+        { status: 403 }
+      );
+    }
     const { data, error } = await ctx.supabase
       .from('quick_replies')
       .insert({
         account_id: ctx.accountId,
-        department_id: departmentId,
+        department_id: visibility === 'personal' ? null : departmentId,
         title,
         shortcut,
         body: text,
         created_by_user_id: ctx.userId,
+        visibility,
       })
       .select()
       .single();

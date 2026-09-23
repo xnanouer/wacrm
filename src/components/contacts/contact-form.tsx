@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -22,7 +22,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Loader2, AlertTriangle } from 'lucide-react';
 
 interface ContactFormProps {
@@ -36,11 +35,13 @@ interface ContactFormProps {
   onViewExisting?: (contactId: string) => void;
 }
 
+const EMPTY_CONTACT_TAGS: ContactTag[] = [];
+
 export function ContactForm({
   open,
   onOpenChange,
   contact,
-  contactTags = [],
+  contactTags = EMPTY_CONTACT_TAGS,
   onSaved,
   onViewExisting,
 }: ContactFormProps) {
@@ -58,14 +59,22 @@ export function ContactForm({
   // hard-blocks the save; a fuzzy trunk-variant match only warns. The
   // DB unique index (migration 022) is the real backstop — this is the
   // friendly heads-up before we get there.
-  const [dupMatch, setDupMatch] = useState<
-    { contact: ExistingContact; exact: boolean } | null
-  >(null);
+  const [dupMatch, setDupMatch] = useState<{
+    contact: ExistingContact;
+    exact: boolean;
+  } | null>(null);
   const [checkingDup, setCheckingDup] = useState(false);
 
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [loadingTags, setLoadingTags] = useState(false);
+
+  const fetchTags = useCallback(async () => {
+    setLoadingTags(true);
+    const { data } = await supabase.from('tags').select('*').order('name');
+    if (data) setTags(data);
+    setLoadingTags(false);
+  }, [supabase]);
 
   useEffect(() => {
     if (open) {
@@ -77,7 +86,7 @@ export function ContactForm({
       setDupMatch(null);
       fetchTags();
     }
-  }, [open, contact]);
+  }, [open, contact, contactTags, fetchTags]);
 
   // Look up an existing contact with this number (new contacts only).
   // Runs on blur so we don't query on every keystroke.
@@ -94,21 +103,11 @@ export function ContactForm({
       setDupMatch(
         existing
           ? { contact: existing, exact: isExactMatch(existing, value) }
-          : null,
+          : null
       );
     } finally {
       setCheckingDup(false);
     }
-  }
-
-  async function fetchTags() {
-    setLoadingTags(true);
-    const { data } = await supabase
-      .from('tags')
-      .select('*')
-      .order('name');
-    if (data) setTags(data);
-    setLoadingTags(false);
   }
 
   function toggleTag(tagId: string) {
@@ -142,7 +141,8 @@ export function ContactForm({
       } = await supabase.auth.getSession();
       const user = session?.user;
       if (!user) throw new Error('Not authenticated');
-      if (!accountId) throw new Error('Your profile is not linked to an account.');
+      if (!accountId)
+        throw new Error('Your profile is not linked to an account.');
 
       let contactId = contact?.id;
 
@@ -208,13 +208,14 @@ export function ContactForm({
           const existing = await findExistingContact(
             supabase,
             accountId,
-            phone.trim(),
+            phone.trim()
           );
           if (existing) setDupMatch({ contact: existing, exact: true });
         }
         return;
       }
-      const message = err instanceof Error ? err.message : 'Failed to save contact';
+      const message =
+        err instanceof Error ? err.message : 'Failed to save contact';
       toast.error(message);
     } finally {
       setSaving(false);
@@ -291,7 +292,7 @@ export function ContactForm({
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Include country code, e.g. +1 for US
               </p>
             )}
@@ -327,12 +328,12 @@ export function ContactForm({
           <div className="space-y-2">
             <Label className="text-muted-foreground">Tags</Label>
             {loadingTags ? (
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
                 <Loader2 className="size-3 animate-spin" />
                 Loading tags...
               </div>
             ) : tags.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 No tags available. Create tags in Settings.
               </p>
             ) : (
@@ -344,9 +345,9 @@ export function ContactForm({
                       key={tag.id}
                       type="button"
                       onClick={() => toggleTag(tag.id)}
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer ${
+                      className={`inline-flex cursor-pointer items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
                         selected
-                          ? 'ring-2 ring-primary ring-offset-1 ring-offset-border'
+                          ? 'ring-primary ring-offset-border ring-2 ring-offset-1'
                           : 'opacity-60 hover:opacity-100'
                       }`}
                       style={{

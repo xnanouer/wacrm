@@ -1,17 +1,21 @@
 import {
+  Building2,
   Coins,
   FileText,
   KeyRound,
   LayoutGrid,
+  MessageSquareText,
   Palette,
   PlugZap,
   Waypoints,
   Shield,
+  Share2,
   Tags,
   User,
   UsersRound,
   type LucideIcon,
 } from 'lucide-react';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 
 /**
  * Settings information architecture for the redesigned page.
@@ -26,7 +30,10 @@ export const SETTINGS_SECTIONS = [
   'profile',
   'security',
   'appearance',
+  'quick-replies',
+  'company',
   'whatsapp',
+  'channels',
   'ticketing',
   'templates',
   'fields',
@@ -38,6 +45,29 @@ export const SETTINGS_SECTIONS = [
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export const DEFAULT_SECTION: SettingsSection = 'overview';
+
+export const PERSONAL_SETTINGS_SECTIONS: readonly SettingsSection[] = [
+  'profile',
+  'security',
+  'appearance',
+  'quick-replies',
+] as const;
+
+const VIEWER_SETTINGS_SECTIONS: readonly SettingsSection[] = [
+  'profile',
+  'security',
+  'appearance',
+] as const;
+
+export function settingsSectionsForRole(
+  role: AccountRole | null
+): readonly SettingsSection[] {
+  return role && hasMinRole(role, 'admin')
+    ? SETTINGS_SECTIONS
+    : role === 'viewer'
+      ? VIEWER_SETTINGS_SECTIONS
+      : PERSONAL_SETTINGS_SECTIONS;
+}
 
 /** Rail grouping. `adminOnly` items are hidden for non-admins. */
 export interface SectionMeta {
@@ -72,10 +102,28 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
     icon: Palette,
     group: 'account',
   },
+  'quick-replies': {
+    id: 'quick-replies',
+    label: 'Respuestas rápidas',
+    icon: MessageSquareText,
+    group: 'account',
+  },
+  company: {
+    id: 'company',
+    label: 'Empresa',
+    icon: Building2,
+    group: 'workspace',
+  },
   whatsapp: {
     id: 'whatsapp',
     label: 'WhatsApp',
     icon: PlugZap,
+    group: 'workspace',
+  },
+  channels: {
+    id: 'channels',
+    label: 'Facebook & Instagram',
+    icon: Share2,
     group: 'workspace',
   },
   ticketing: {
@@ -104,7 +152,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   },
   members: {
     id: 'members',
-    label: 'Team members',
+    label: 'Usuarios del equipo',
     icon: UsersRound,
     group: 'workspace',
   },

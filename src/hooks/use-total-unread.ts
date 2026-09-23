@@ -1,13 +1,13 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { Conversation } from "@/types";
+import { useEffect, useRef, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import type { Conversation } from '@/types';
 
 /**
- * Count of conversations with at least one unread inbound message for
- * the current user. Used by the sidebar to surface a green dot on the
- * Inbox nav entry when the user is elsewhere in the app.
+ * Total number of unread inbound messages visible to the current user.
+ * Used by the sidebar and the browser-tab title. Conversations already
+ * persist this count, so it remains accurate across page reloads.
  *
  * Lives on its own realtime channel (distinct from the inbox page's
  * "inbox-realtime") so both can coexist without sharing state.
@@ -27,8 +27,8 @@ export function useTotalUnread(): number {
     // no explicit user_id filter needed here.
     (async () => {
       const { data, error } = await supabase
-        .from("conversations")
-        .select("id, unread_count");
+        .from('conversations')
+        .select('id, unread_count');
       if (cancelled || error || !data) return;
 
       const map = new Map<string, number>();
@@ -36,20 +36,20 @@ export function useTotalUnread(): number {
       for (const row of data as { id: string; unread_count: number }[]) {
         const n = row.unread_count ?? 0;
         map.set(row.id, n);
-        if (n > 0) sum += 1;
+        sum += n;
       }
       countsRef.current = map;
       setTotal(sum);
     })();
 
     const channel = supabase
-      .channel("total-unread-realtime")
+      .channel('total-unread-realtime')
       .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "conversations" },
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversations' },
         (payload) => {
           const map = countsRef.current;
-          if (payload.eventType === "DELETE") {
+          if (payload.eventType === 'DELETE') {
             const oldRow = payload.old as Partial<Conversation>;
             if (oldRow.id) map.delete(oldRow.id);
           } else {
@@ -58,9 +58,9 @@ export function useTotalUnread(): number {
           }
           // Recompute — cheap, conversations per user stay small.
           let sum = 0;
-          for (const n of map.values()) if (n > 0) sum += 1;
+          for (const n of map.values()) sum += n;
           setTotal(sum);
-        },
+        }
       )
       .subscribe();
 

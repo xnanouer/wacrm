@@ -1,0 +1,79 @@
+services:
+  web:
+    init: true
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?required}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?required}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?required}
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?required}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?required}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?required}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?required}
+      WHATSAPP_WEB_BRIDGE_SECRET: ${WHATSAPP_WEB_BRIDGE_SECRET:?required}
+      WHATSAPP_WEB_SERVICE_URL: http://whatsapp-worker:3001
+      AUTOMATION_CRON_SECRET: ${AUTOMATION_CRON_SECRET:?required}
+      CRON_SECRET: ${CRON_SECRET:?required}
+      PLATFORM_OWNER_EMAILS: ${PLATFORM_OWNER_EMAILS:?required}
+    depends_on:
+      whatsapp-worker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+
+  whatsapp-worker:
+    init: true
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?required}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?required}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?required}
+    restart: unless-stopped
+    command: ['npm', 'run', 'start:web']
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?required}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?required}
+      WHATSAPP_WEB_BRIDGE_SECRET: ${WHATSAPP_WEB_BRIDGE_SECRET:?required}
+      WHATSAPP_WEB_NEXORA_URL: http://web:3000
+      WHATSAPP_WEB_SERVICE_PORT: '3001'
+      WHATSAPP_WEB_SESSION_PATH: /app/.wwebjs_auth
+    volumes:
+      - whatsapp_sessions:/app/.wwebjs_auth
+      - whatsapp_cache:/app/.wwebjs_cache
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/health',{headers:{'x-nexora-bridge-secret':process.env.WHATSAPP_WEB_BRIDGE_SECRET}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    stop_grace_period: 30s
+
+volumes:
+  whatsapp_sessions:
+  whatsapp_cache:

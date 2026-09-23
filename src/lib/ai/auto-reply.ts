@@ -1,20 +1,109 @@
-import { supabaseAdmin } from './admin-client'
-import { loadAiConfig } from './config'
-import { buildConversationContext } from './context'
-import { retrieveKnowledge } from './knowledge'
-import { generateReply } from './generate'
-import { buildSystemPrompt } from './defaults'
-import { latestUserMessage } from './query'
-import { engineSendText } from '@/lib/flows/meta-send'
+import { supabaseAdmin } from './admin-client';
+import { loadAiConfig } from './config';
+import { buildConversationContext } from './context';
+import { generateAgentReply } from './orchestrator';
+import { loadCatalogCandidatesByIds, sendCatalogCandidates } from './catalog';
+import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
+import {
+  finalizeAiPoints,
+  releaseAiPointsQuietly,
+  reserveAiPoints,
+} from './points/service';
+import {
+  MAX_GENERATED_AUDIO_DURATION_MS,
+  synthesizeOpenAiSpeech,
+  uploadAiVoiceNote,
+} from './audio';
+import { AiError, type AiConfig, type LeadProfilePatch } from './types';
+import { saveConversationLeadProfile } from './lead-profile';
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
-  accountId: string
-  conversationId: string
-  contactId: string
+  accountId: string;
+  conversationId: string;
+  contactId: string;
   /** The account's WhatsApp config owner, used for the outbound send's
    *  audit columns (mirrors how the flow runner passes it through). */
-  configOwnerUserId: string
+  configOwnerUserId: string;
+  /** Stable provider-side identifier of the inbound message. */
+  sourceMessageExternalId: string;
+}
+
+async function prepareAudioReply(args: {
+  db: ReturnType<typeof supabaseAdmin>;
+  config: AiConfig;
+  accountId: string;
+  conversationId: string;
+  contactId: string;
+  actorUserId: string;
+  sourceMessageExternalId: string;
+  sourceMessageId: string | null;
+  whatsappConfigId: string | null;
+  channelConnectionId: string | null;
+  text: string;
+}): Promise<string | null> {
+  let reservation;
+  try {
+    reservation = await reserveAiPoints({
+      accountId: args.accountId,
+      action: 'audio_generation',
+      idempotencyKey: `audio-reply:${args.sourceMessageExternalId}`,
+      actorUserId: args.actorUserId,
+      estimatedDurationMs: MAX_GENERATED_AUDIO_DURATION_MS,
+      aiConfigId: args.config.id,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      whatsappConfigId: args.whatsappConfigId,
+      channelConnectionId: args.channelConnectionId,
+      sourceMessageId: args.sourceMessageId,
+      metadata: { surface: 'automatic_audio_reply' },
+    });
+  } catch (error) {
+    console.error('[ai auto-reply] audio points were not authorized:', error);
+    return null;
+  }
+
+  let speechCompleted = false;
+  let actualDurationMs = MAX_GENERATED_AUDIO_DURATION_MS;
+  try {
+    const speech = await synthesizeOpenAiSpeech({
+      config: args.config,
+      text: args.text,
+    });
+    speechCompleted = true;
+    actualDurationMs = speech.durationMs;
+    const publicUrl = await uploadAiVoiceNote(
+      args.db,
+      args.accountId,
+      speech.buffer
+    );
+    await finalizeAiPoints(reservation.operationId, {
+      actualDurationMs: speech.durationMs,
+      metadata: { outcome: 'audio_generated' },
+    });
+    return publicUrl;
+  } catch (error) {
+    if (speechCompleted) {
+      try {
+        await finalizeAiPoints(reservation.operationId, {
+          actualDurationMs,
+          metadata: { outcome: 'audio_generated_but_not_prepared' },
+        });
+      } catch (finalizeError) {
+        console.error(
+          '[ai auto-reply] failed to finalize completed speech generation:',
+          finalizeError
+        );
+      }
+    } else {
+      await releaseAiPointsQuietly(
+        reservation.operationId,
+        'audio_generation_failed'
+      );
+    }
+    console.error('[ai auto-reply] audio preparation failed:', error);
+    return null;
+  }
 }
 
 /**
@@ -37,15 +126,27 @@ interface DispatchArgs {
  * window check is needed.
  */
 export async function dispatchInboundToAiReply(
-  args: DispatchArgs,
+  args: DispatchArgs
 ): Promise<void> {
-  const { accountId, conversationId, contactId, configOwnerUserId } = args
+  const {
+    accountId,
+    conversationId,
+    contactId,
+    configOwnerUserId,
+    sourceMessageExternalId,
+  } = args;
 
   try {
-    const db = supabaseAdmin()
+    const db = supabaseAdmin();
 
-    const config = await loadAiConfig(db, accountId)
-    if (!config || !config.autoReplyEnabled) return
+    const config = await loadAiConfig(db, accountId);
+    if (
+      !config ||
+      !config.autoReplyEnabled ||
+      config.operatingMode !== 'automatic'
+    ) {
+      return;
+    }
 
     // Deterministic, user-configured responders win over the LLM — the
     // caller already excludes messages a Flow consumed. Message-level
@@ -61,77 +162,370 @@ export async function dispatchInboundToAiReply(
       .eq('account_id', accountId)
       .eq('is_active', true)
       .in('trigger_type', ['new_message_received', 'keyword_match'])
-      .limit(1)
-    if (autoResponders && autoResponders.length > 0) return
+      .limit(1);
+    if (autoResponders && autoResponders.length > 0) return;
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
-      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count')
+      .select(
+        'assigned_agent_id, ai_autoreply_disabled, ai_reply_count, ai_state, human_requested_at, whatsapp_config_id, channel_connection_id'
+      )
       .eq('id', conversationId)
-      .maybeSingle()
-    if (convErr || !conv) return
-    if (conv.assigned_agent_id) return // a human owns this thread
-    if (conv.ai_autoreply_disabled) return // handed off / turned off here
+      .eq('account_id', accountId)
+      .maybeSingle();
+    if (convErr || !conv) return;
+    if (conv.ai_autoreply_disabled) return; // handed off / turned off here
+    if (conv.human_requested_at) return;
+
+    let coverageMode: 'manual' | 'after_hours' | null = null;
+    if (conv.assigned_agent_id) {
+      if (conv.ai_state === 'ai_active' && config.manualAiDelegationEnabled) {
+        coverageMode = 'manual';
+      } else if (
+        config.afterHoursCoverageEnabled &&
+        config.afterHoursBehavior === 'automatic'
+      ) {
+        const { data: unavailable, error: availabilityError } = await db.rpc(
+          'is_user_unavailable_for_ai',
+          {
+            p_account_id: accountId,
+            p_user_id: conv.assigned_agent_id,
+            p_at: new Date().toISOString(),
+          }
+        );
+        if (availabilityError || unavailable !== true) return;
+        if (config.afterHoursScope === 'selected') {
+          const { data: coveredUser, error: coveredUserError } = await db
+            .from('ai_after_hours_users')
+            .select('user_id')
+            .eq('account_id', accountId)
+            .eq('ai_config_id', config.id)
+            .eq('user_id', conv.assigned_agent_id)
+            .maybeSingle();
+          if (coveredUserError || !coveredUser) return;
+        }
+        coverageMode = 'after_hours';
+      } else {
+        return;
+      }
+    }
     // Cheap early-out; the authoritative cap check is the atomic claim
     // below (this read can race a concurrent inbound).
-    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
-
-    const messages = await buildConversationContext(db, conversationId)
-    if (messages.length === 0) return
-
-    // Ground the reply in the account's knowledge base (best-effort).
-    const knowledge = await retrieveKnowledge(
-      db,
-      accountId,
-      config,
-      latestUserMessage(messages),
-    )
-
-    const systemPrompt = buildSystemPrompt({
-      userPrompt: config.systemPrompt,
-      mode: 'auto_reply',
-      knowledge,
-    })
-
-    const { text, handoff } = await generateReply({
-      config,
-      systemPrompt,
-      messages,
-    })
-
-    if (handoff || !text) {
-      // The model can't (or shouldn't) answer — stop auto-replying on
-      // this thread and leave the inbound unanswered so it surfaces in
-      // the inbox for a human. Sticky until an admin re-enables.
-      await db
-        .from('conversations')
-        .update({ ai_autoreply_disabled: true })
-        .eq('id', conversationId)
-      return
+    if (
+      !coverageMode &&
+      config.autoReplyMaxPerConversation !== null &&
+      conv.ai_reply_count >= config.autoReplyMaxPerConversation
+    ) {
+      return;
     }
 
-    // Atomically claim a reply slot: the cap check + increment happen in
-    // one UPDATE, so concurrent inbounds can never overshoot the cap. If
-    // another inbound just took the last slot, `claimed` is false and we
-    // skip the send. (We consume a slot slightly before the send lands —
-    // fail-safe: under-reply rather than over-reply.)
-    const { data: claimed, error: claimErr } = await db.rpc(
-      'claim_ai_reply_slot',
-      {
-        conversation_id: conversationId,
-        max_replies: config.autoReplyMaxPerConversation,
-      },
-    )
-    if (claimErr || claimed !== true) return
+    const { data: allowedConnections } = await db
+      .from('ai_agent_connections')
+      .select('whatsapp_config_id, channel_connection_id')
+      .eq('account_id', accountId)
+      .eq('ai_config_id', config.id)
+      .eq('is_enabled', true);
+    if (
+      allowedConnections?.length &&
+      !allowedConnections.some(
+        (connection) =>
+          (conv.whatsapp_config_id &&
+            connection.whatsapp_config_id === conv.whatsapp_config_id) ||
+          (conv.channel_connection_id &&
+            connection.channel_connection_id === conv.channel_connection_id)
+      )
+    ) {
+      return;
+    }
 
-    await engineSendText({
-      accountId,
-      userId: configOwnerUserId,
+    const messages = await buildConversationContext(db, conversationId);
+    if (messages.length === 0) return;
+
+    const { data: sourceMessage } = await db
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('message_id', sourceMessageExternalId)
+      .maybeSingle();
+
+    let reservation;
+    try {
+      reservation = await reserveAiPoints({
+        accountId,
+        action: 'automatic_text_reply',
+        idempotencyKey: `automatic:${sourceMessageExternalId}`,
+        actorUserId: configOwnerUserId,
+        aiConfigId: config.id,
+        conversationId,
+        contactId,
+        whatsappConfigId: conv.whatsapp_config_id,
+        channelConnectionId: conv.channel_connection_id,
+        sourceMessageId: sourceMessage?.id ?? null,
+        metadata: {
+          surface:
+            coverageMode === 'after_hours'
+              ? 'after_hours_coverage'
+              : coverageMode === 'manual'
+                ? 'manual_ai_delegation'
+                : 'inbound_auto_reply',
+        },
+      });
+    } catch (error) {
+      if (
+        coverageMode === 'after_hours' &&
+        error instanceof AiError &&
+        error.code === 'ai_insufficient_points'
+      ) {
+        const staticMessage = config.outOfHoursMessage.trim();
+        if (
+          config.afterHoursNoPointsBehavior === 'static_message' &&
+          staticMessage
+        ) {
+          await sendMessageToConversation(db, accountId, {
+            conversationId,
+            messageType: 'text',
+            contentText: staticMessage,
+            senderType: 'bot',
+            pauseFlows: false,
+          });
+        }
+        await db
+          .from('conversations')
+          .update({
+            ai_state: 'waiting_for_human',
+            ai_autoreply_disabled: true,
+            ai_pause_reason: 'insufficient_points',
+            ai_paused_at: new Date().toISOString(),
+          })
+          .eq('id', conversationId)
+          .eq('account_id', accountId);
+        await db.from('ticket_events').insert({
+          account_id: accountId,
+          conversation_id: conversationId,
+          event_type: 'ai_no_points',
+          metadata: { behavior: config.afterHoursNoPointsBehavior },
+        });
+        return;
+      }
+      throw error;
+    }
+
+    // Claim the per-conversation slot before paying the provider. The point
+    // reservation is released if another inbound already took the last slot.
+    const { data: claimed, error: claimErr } = coverageMode
+      ? await db.rpc('claim_ai_coverage_reply_slot', {
+          p_conversation_id: conversationId,
+          p_mode: coverageMode,
+          p_max_replies: config.autoReplyMaxPerConversation,
+        })
+      : await db.rpc('claim_ai_reply_slot', {
+          conversation_id: conversationId,
+          max_replies: config.autoReplyMaxPerConversation,
+        });
+    if (claimErr || claimed !== true) {
+      await releaseAiPointsQuietly(
+        reservation.operationId,
+        claimErr ? 'reply_slot_claim_failed' : 'reply_limit_reached'
+      );
+      if (
+        !claimErr &&
+        coverageMode === 'after_hours' &&
+        config.afterHoursNoPointsBehavior === 'static_message' &&
+        config.outOfHoursMessage.trim()
+      ) {
+        const { data: stoppedConversation } = await db
+          .from('conversations')
+          .select('ai_pause_reason')
+          .eq('id', conversationId)
+          .eq('account_id', accountId)
+          .maybeSingle();
+        if (stoppedConversation?.ai_pause_reason === 'coverage_points_limit') {
+          await sendMessageToConversation(db, accountId, {
+            conversationId,
+            messageType: 'text',
+            contentText: config.outOfHoursMessage.trim(),
+            senderType: 'bot',
+            pauseFlows: false,
+          });
+        }
+      }
+      return;
+    }
+
+    let providerCompleted = false;
+    let text = '';
+    let handoff = false;
+    let replyMode: 'text' | 'audio' = 'text';
+    let catalogMatches: Array<{ id: string; label: string }> = [];
+    let leadProfilePatch: LeadProfilePatch = {};
+    try {
+      const runtimeConfig = coverageMode
+        ? {
+            ...config,
+            additionalInstructions: [
+              config.additionalInstructions,
+              'Estás cubriendo temporalmente una conversación asignada a un ejecutivo humano.',
+              'Preséntate siempre como el asistente virtual de la empresa. Nunca te hagas pasar por el ejecutivo asignado ni digas que eres esa persona.',
+              'Resuelve lo que puedas con la información autorizada y deriva solo cuando sea realmente necesario o el cliente pida una persona.',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          }
+        : config;
+      const result = await generateAgentReply({
+        db,
+        accountId,
+        config: runtimeConfig,
+        messages,
+        mode: 'auto_reply',
+        conversationId,
+        contactId,
+      });
+      text = result.text;
+      handoff = result.handoff;
+      replyMode = result.replyMode;
+      catalogMatches = result.catalogMatches;
+      leadProfilePatch = result.leadProfilePatch ?? {};
+      providerCompleted = true;
+      await finalizeAiPoints(reservation.operationId, {
+        metadata: {
+          outcome: handoff ? 'handoff' : 'reply_generated',
+          catalog_candidates: result.catalogMatches.length,
+        },
+      });
+    } catch (error) {
+      if (!providerCompleted) {
+        await releaseAiPointsQuietly(
+          reservation.operationId,
+          'provider_request_failed'
+        );
+      }
+      throw error;
+    }
+
+    if (
+      config.permissions.classify_leads &&
+      Object.keys(leadProfilePatch).length > 0
+    ) {
+      try {
+        await saveConversationLeadProfile({
+          db,
+          accountId,
+          conversationId,
+          contactId,
+          sourceMessageId: sourceMessage?.id ?? null,
+          patch: leadProfilePatch,
+        });
+      } catch (error) {
+        // Capturing the profile must never prevent a valid customer reply.
+        console.error('[ai auto-reply] lead profile save failed:', error);
+      }
+    }
+
+    if (handoff || !text) {
+      // A handoff still consumed a completed inference, but no outbound is
+      // sent and the conversation is surfaced to a human.
+      await db
+        .from('conversations')
+        .update({
+          ai_autoreply_disabled: true,
+          ai_state: 'waiting_for_human',
+          ai_pause_reason: 'handoff',
+          ai_paused_at: new Date().toISOString(),
+          human_requested_at: new Date().toISOString(),
+        })
+        .eq('id', conversationId)
+        .eq('account_id', accountId);
+      await db.from('ticket_events').insert({
+        account_id: accountId,
+        conversation_id: conversationId,
+        event_type: 'ai_waiting_human',
+        note: 'La IA solicitó apoyo del equipo.',
+        metadata: { reason: 'handoff' },
+      });
+      return;
+    }
+
+    let audioUrl: string | null = null;
+    if (
+      replyMode === 'audio' &&
+      config.audioEnabled &&
+      config.permissions.generate_audio &&
+      config.provider === 'openai'
+    ) {
+      audioUrl = await prepareAudioReply({
+        db,
+        config,
+        accountId,
+        conversationId,
+        contactId,
+        actorUserId: configOwnerUserId,
+        sourceMessageExternalId,
+        sourceMessageId: sourceMessage?.id ?? null,
+        whatsappConfigId: conv.whatsapp_config_id,
+        channelConnectionId: conv.channel_connection_id,
+        text,
+      });
+    }
+
+    const sentReply = await sendMessageToConversation(db, accountId, {
       conversationId,
-      contactId,
-      text,
-    })
+      messageType: audioUrl ? 'audio' : 'text',
+      contentText: text,
+      mediaUrl: audioUrl,
+      senderType: 'bot',
+      pauseFlows: false,
+    });
+
+    await db
+      .from('conversations')
+      .update({
+        ai_state:
+          coverageMode === 'after_hours'
+            ? 'ai_after_hours'
+            : coverageMode === 'manual'
+              ? 'ai_active'
+              : 'idle',
+        last_ai_reply_at: new Date().toISOString(),
+      })
+      .eq('id', conversationId)
+      .eq('account_id', accountId);
+
+    if (
+      config.catalogAiAutoSend &&
+      catalogMatches.length > 0 &&
+      conv.whatsapp_config_id
+    ) {
+      try {
+        // Re-read immediately before dispatch. A unit hidden, sold or
+        // unapproved during generation is therefore never sent.
+        const candidates = await loadCatalogCandidatesByIds(
+          db,
+          accountId,
+          catalogMatches.map((candidate) => candidate.id)
+        );
+        if (candidates.length > 0) {
+          await sendCatalogCandidates({
+            db,
+            accountId,
+            conversationId,
+            contactId,
+            actorUserId: configOwnerUserId,
+            whatsappConfigId: conv.whatsapp_config_id,
+            introductionText: text,
+            introMessageId: sentReply.messageId,
+            candidates,
+            senderType: 'bot',
+            source: 'nexora_ai',
+          });
+        }
+      } catch (error) {
+        // The introductory AI reply has already been delivered. Do not
+        // duplicate it if one of the catalog cards fails.
+        console.error('[ai auto-reply] catalog dispatch failed:', error);
+      }
+    }
   } catch (err) {
-    console.error('[ai auto-reply] dispatch failed:', err)
+    console.error('[ai auto-reply] dispatch failed:', err);
   }
 }

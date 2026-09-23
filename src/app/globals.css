@@ -1,13 +1,16 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
   --app-font-sans:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', Inter,
+    'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  --app-control-height: 3rem;
+  --app-page-gutter: clamp(1.25rem, 2.4vw, 2.75rem);
+  --app-section-gap: clamp(1.75rem, 2.8vw, 2.5rem);
 }
 
 @theme inline {
@@ -93,68 +96,70 @@
 /* ---- MODE: neutral surfaces ---- */
 
 :root,
-html[data-mode="dark"] {
-  --background: oklch(0.13 0.01 260);
+html[data-mode='dark'] {
+  --background: oklch(0.115 0.018 272);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.18 0.01 260);
-  --card-2: oklch(0.205 0.01 260);
+  --card: oklch(0.155 0.019 270);
+  --card-2: oklch(0.195 0.022 270);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.18 0.01 260);
   --popover-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.22 0.01 260);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.22 0.01 260);
-  --muted-foreground: oklch(0.65 0.01 260);
-  --accent: oklch(0.22 0.01 260);
+  --muted: oklch(0.215 0.025 270);
+  --muted-foreground: oklch(0.69 0.018 270);
+  --accent: oklch(0.225 0.03 270);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.28 0.01 260);
-  --input: oklch(0.28 0.01 260);
+  --border: oklch(0.275 0.022 270);
+  --input: oklch(0.3 0.024 270);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.16 0.01 260);
+  --radius: 1rem;
+  --sidebar: oklch(0.135 0.02 272);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.22 0.01 260);
+  --sidebar-accent: oklch(0.21 0.034 272);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.28 0.01 260);
+  --sidebar-border: oklch(0.255 0.03 272);
+  --nexora-lockup-image: url('/brand/nexora-transparent-lockup.png');
 }
 
-html[data-mode="light"] {
-  --background: oklch(0.99 0.002 260);
-  --foreground: oklch(0.21 0.01 260);
+html[data-mode='light'] {
+  --background: oklch(0.975 0.004 265);
+  --foreground: oklch(0.205 0.008 260);
   --card: oklch(1 0 0);
-  --card-2: oklch(0.985 0.002 260);
+  --card-2: oklch(0.963 0.006 265);
   --card-foreground: oklch(0.21 0.01 260);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.21 0.01 260);
   --secondary: oklch(0.967 0.003 260);
   --secondary-foreground: oklch(0.25 0.01 260);
-  --muted: oklch(0.967 0.003 260);
+  --muted: oklch(0.955 0.008 270);
   --muted-foreground: oklch(0.52 0.015 260);
-  --accent: oklch(0.96 0.004 260);
+  --accent: oklch(0.95 0.012 270);
   --accent-foreground: oklch(0.25 0.01 260);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0.004 260);
-  --input: oklch(0.922 0.004 260);
+  --border: oklch(0.905 0.008 265);
+  --input: oklch(0.885 0.009 265);
   --chart-2: oklch(0.6 0.1 260);
   --chart-3: oklch(0.7 0.06 260);
   --chart-4: oklch(0.8 0.04 260);
   --chart-5: oklch(0.87 0.03 260);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0.002 260);
+  --radius: 1rem;
+  --sidebar: oklch(0.992 0.002 265);
   --sidebar-foreground: oklch(0.21 0.01 260);
   --sidebar-accent: oklch(0.96 0.004 260);
   --sidebar-accent-foreground: oklch(0.25 0.01 260);
   --sidebar-border: oklch(0.922 0.004 260);
+  --nexora-lockup-image: url('/brand/nexora-transparent-lockup-light.png');
 }
 
 /* ---- ACCENT: primary color ---- */
 
 :root,
-html[data-theme="violet"] {
+html[data-theme='violet'] {
   --primary: oklch(0.526 0.247 293);
   --primary-foreground: oklch(0.985 0 0);
   --primary-hover: oklch(0.6 0.22 293);
@@ -167,7 +172,7 @@ html[data-theme="violet"] {
   --sidebar-ring: oklch(0.526 0.247 293);
 }
 
-html[data-theme="emerald"] {
+html[data-theme='emerald'] {
   --primary: oklch(0.62 0.16 162);
   --primary-foreground: oklch(0.16 0.02 162);
   --primary-hover: oklch(0.68 0.15 162);
@@ -181,7 +186,7 @@ html[data-theme="emerald"] {
   --sidebar-ring: oklch(0.62 0.16 162);
 }
 
-html[data-theme="cobalt"] {
+html[data-theme='cobalt'] {
   --primary: oklch(0.585 0.2 254);
   --primary-foreground: oklch(0.985 0 0);
   --primary-hover: oklch(0.66 0.18 254);
@@ -195,7 +200,7 @@ html[data-theme="cobalt"] {
   --sidebar-ring: oklch(0.585 0.2 254);
 }
 
-html[data-theme="amber"] {
+html[data-theme='amber'] {
   --primary: oklch(0.745 0.16 65);
   --primary-foreground: oklch(0.18 0.03 65);
   --primary-hover: oklch(0.8 0.15 65);
@@ -209,7 +214,7 @@ html[data-theme="amber"] {
   --sidebar-ring: oklch(0.745 0.16 65);
 }
 
-html[data-theme="rose"] {
+html[data-theme='rose'] {
   --primary: oklch(0.645 0.22 16);
   --primary-foreground: oklch(0.985 0 0);
   --primary-hover: oklch(0.71 0.2 16);
@@ -229,8 +234,256 @@ html[data-theme="rose"] {
   }
   body {
     @apply bg-background text-foreground;
+    min-width: 320px;
+    font-size: 16px;
+    line-height: 1.6;
+    letter-spacing: -0.012em;
+    background-image:
+      radial-gradient(
+        circle at 78% -10%,
+        color-mix(in oklab, var(--primary) 9%, transparent),
+        transparent 34rem
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--background) 96%, var(--card)),
+        var(--background)
+      );
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+
+  /* Keep every native overflow surface consistent with Nexora. This also
+     covers Chromium/Windows containers that expose their own scrollbar
+     outside Base UI's custom ScrollArea. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--primary) 62%, var(--border))
+      transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--primary) 62%, var(--border));
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--primary) 82%, white 8%);
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-button,
+  *::-webkit-scrollbar-button:single-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+}
+
+@layer utilities {
+  /* Base UI renders its own draggable scrollbar. Hide the native scrollbar
+     underneath it explicitly so Windows never paints a second white rail. */
+  .nexora-scroll-viewport {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+  }
+
+  .nexora-scroll-viewport::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  .nexora-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--primary) 62%, var(--border))
+      transparent;
+    overscroll-behavior: contain;
+  }
+
+  .nexora-scrollbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .nexora-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .nexora-scrollbar::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--primary) 62%, var(--border));
+    background-clip: padding-box;
+  }
+
+  .nexora-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--primary) 82%, white 8%);
+    background-clip: padding-box;
+  }
+
+  .nexora-scrollbar::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  .surface-elevated {
+    background: color-mix(in oklab, var(--card) 97%, transparent);
+    border: 1px solid color-mix(in oklab, var(--border) 76%, transparent);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 7%, transparent) inset,
+      0 2px 6px color-mix(in oklab, black 5%, transparent),
+      0 24px 70px -48px color-mix(in oklab, black 52%, transparent);
+  }
+
+  .nexora-panel {
+    border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+    border-radius: 1.75rem;
+    background: color-mix(in oklab, var(--card) 98%, transparent);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 8%, transparent) inset,
+      0 26px 72px -50px color-mix(in oklab, black 52%, transparent);
+  }
+
+  .nexora-page-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-section-gap);
+  }
+
+  .nexora-kicker {
+    color: var(--primary);
+    font-size: 0.8125rem;
+    font-weight: 750;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .nexora-title {
+    color: var(--foreground);
+    font-size: clamp(2rem, 3.4vw, 2.8rem);
+    font-weight: 750;
+    line-height: 1.04;
+    letter-spacing: -0.05em;
+  }
+
+  .nexora-description {
+    color: var(--muted-foreground);
+    max-width: 48rem;
+    font-size: 1.0625rem;
+    line-height: 1.72;
+  }
+
+  /* Nexora used many compact Tailwind sizes during its first iterations.
+     This workspace-only scale keeps dense badges compact while making all
+     operational text comfortable to read. Public pages remain independently
+     art-directed. */
+  .nexora-workspace .text-sm {
+    font-size: 0.96875rem !important;
+    line-height: 1.5rem !important;
+  }
+
+  .nexora-workspace .text-xs {
+    font-size: 0.84375rem !important;
+    line-height: 1.3rem !important;
+  }
+
+  .nexora-workspace [class~='text-[9px]'],
+  .nexora-workspace [class~='text-[10px]'] {
+    font-size: 0.75rem !important;
+    line-height: 1.05rem !important;
+  }
+
+  .nexora-workspace [class~='text-[11px]'] {
+    font-size: 0.8125rem !important;
+    line-height: 1.15rem !important;
+  }
+
+  .nexora-workspace [class~='text-[12px]'] {
+    font-size: 0.875rem !important;
+    line-height: 1.25rem !important;
+  }
+
+  .nexora-workspace [class~='text-[13px]'] {
+    font-size: 0.90625rem !important;
+    line-height: 1.35rem !important;
+  }
+
+  .nexora-workspace [data-slot='input'],
+  .nexora-workspace [data-slot='textarea'],
+  .nexora-workspace [data-slot='select-trigger'] {
+    min-height: 3rem;
+  }
+
+  .nexora-workspace [data-slot='card'] {
+    border-color: color-mix(in oklab, var(--border) 78%, transparent);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 8%, transparent) inset,
+      0 22px 60px -48px color-mix(in oklab, black 55%, transparent);
+  }
+
+  .nexora-workspace [data-slot='card'],
+  .nexora-workspace [data-slot='dialog-content'],
+  .nexora-workspace [data-slot='sheet-content'] {
+    backdrop-filter: blur(18px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  .subtle-grid {
+    background-image:
+      linear-gradient(
+        color-mix(in oklab, var(--border) 28%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--border) 28%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 32px 32px;
   }
 }

@@ -11,6 +11,10 @@ import {
   SendMessageError,
 } from '@/lib/whatsapp/send-message';
 import { isUniqueViolation } from '@/lib/contacts/dedupe';
+import {
+  sendSocialMessageToConversation,
+  SocialSendError,
+} from '@/lib/meta/send-message';
 
 // The dashboard's outbound-send endpoint. It owns auth, per-user rate
 // limiting, and the two ways the UI targets a thread — an existing
@@ -111,11 +115,12 @@ export async function POST(request: Request) {
     // contact so a business-initiated template send (Contact detail view)
     // reuses the shared send core below.
     let conversationId: string | null = null;
+    let conversationChannel = 'whatsapp';
 
     if (conversationIdInput) {
       const { data, error: convError } = await supabase
         .from('conversations')
-        .select('id')
+        .select('id, channel')
         .eq('id', conversationIdInput)
         .eq('account_id', accountId)
         .single();
@@ -127,6 +132,7 @@ export async function POST(request: Request) {
         );
       }
       conversationId = data.id;
+      conversationChannel = data.channel ?? 'whatsapp';
     } else {
       // contact_id path: verify the contact is in this account first so a
       // caller can't open a conversation against someone else's contact.
@@ -164,6 +170,37 @@ export async function POST(request: Request) {
         { error: 'Conversation not found' },
         { status: 404 }
       );
+    }
+
+    if (
+      conversationChannel === 'facebook' ||
+      conversationChannel === 'instagram'
+    ) {
+      try {
+        const result = await sendSocialMessageToConversation(
+          supabase,
+          accountId,
+          {
+            conversationId,
+            messageType: message_type,
+            contentText: content_text,
+            replyToMessageId: reply_to_message_id,
+          }
+        );
+        return NextResponse.json({
+          success: true,
+          message_id: result.messageId,
+          meta_message_id: result.metaMessageId,
+        });
+      } catch (err) {
+        if (err instanceof SocialSendError) {
+          return NextResponse.json(
+            { error: err.message },
+            { status: err.status }
+          );
+        }
+        throw err;
+      }
     }
 
     // Delegate to the shared send core (validates, sends to Meta with
@@ -226,6 +263,10 @@ async function findOrCreateConversation(
     .from('whatsapp_config')
     .select('id, default_department_id')
     .eq('account_id', accountId)
+    .eq('status', 'connected')
+    .order('is_default', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1)
     .maybeSingle();
   if (!config) return null;
 

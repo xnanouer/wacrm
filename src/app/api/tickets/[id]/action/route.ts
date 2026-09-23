@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
+import { analyzeHumanConversation } from '@/lib/ai/coach';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import {
   parseTicketAction,
@@ -12,6 +13,8 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import { isUuid } from '@/lib/validation/uuid';
+
+export const maxDuration = 60;
 
 export async function POST(
   request: Request,
@@ -31,6 +34,22 @@ export async function POST(
     }
     const input = parseTicketAction(await request.json());
     const ticket = await runTicketAction(ctx.supabase, id, input);
+    if (input.action === 'resolve') {
+      after(async () => {
+        try {
+          await analyzeHumanConversation({
+            accountId: ctx.accountId,
+            conversationId: id,
+            triggeredByUserId: ctx.userId,
+            triggerType: 'ticket_closed',
+          });
+        } catch (error) {
+          // Coaching is advisory: a provider or points failure must never
+          // roll back a successfully resolved customer conversation.
+          console.error('[ai coach] automatic analysis failed:', error);
+        }
+      });
+    }
     return NextResponse.json({ ticket });
   } catch (error) {
     if (error instanceof TicketActionError) {

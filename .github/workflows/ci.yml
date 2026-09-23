@@ -27,18 +27,33 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://ci.example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-anon-key
+      NEXT_PUBLIC_SITE_URL: https://ci.example.test
+      SUPABASE_SERVICE_ROLE_KEY: ci-dummy-service-role-key
       ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      WHATSAPP_WEB_BRIDGE_SECRET: '1111111111111111111111111111111111111111111111111111111111111111'
+      AUTOMATION_CRON_SECRET: '2222222222222222222222222222222222222222222222222222222222222222'
+      CRON_SECRET: '3333333333333333333333333333333333333333333333333333333333333333'
+      PLATFORM_OWNER_EMAILS: owner@ci.example.test
       META_APP_SECRET: 'ci-dummy-meta-secret'
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Check deployment configuration
+        run: npm run deploy:check
 
       - name: Lint
         run: npm run lint

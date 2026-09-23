@@ -10,6 +10,7 @@ import {
   canViewOnly,
   hasMinRole,
   isAccountRole,
+  isAssignableAccountRole,
   roleRank,
 } from './roles';
 
@@ -94,6 +95,16 @@ describe('isAccountRole', () => {
     expect(isAccountRole(undefined)).toBe(false);
     expect(isAccountRole(123)).toBe(false);
     expect(isAccountRole('superuser')).toBe(false);
+  });
+});
+
+describe('isAssignableAccountRole', () => {
+  it('only accepts the two roles administrators may assign', () => {
+    expect(isAssignableAccountRole('admin')).toBe(true);
+    expect(isAssignableAccountRole('agent')).toBe(true);
+    expect(isAssignableAccountRole('owner')).toBe(false);
+    expect(isAssignableAccountRole('supervisor')).toBe(false);
+    expect(isAssignableAccountRole('viewer')).toBe(false);
   });
 });
 

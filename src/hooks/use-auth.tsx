@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import {
   createContext,
@@ -9,17 +9,24 @@ import {
   useMemo,
   useRef,
   type ReactNode,
-} from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { User } from "@supabase/supabase-js";
-import { DEFAULT_CURRENCY } from "@/lib/currency";
+} from 'react';
+import { createClient } from '@/lib/supabase/client';
+import type { User } from '@supabase/supabase-js';
+import type { PlatformRole } from '@/lib/platform/types';
+import type { SubscriptionStatus } from '@/lib/billing/access';
+import { DEFAULT_CURRENCY } from '@/lib/currency';
+import type {
+  ActiveIndustry,
+  BusinessSubtype,
+  OnboardingAnswers,
+} from '@/lib/industries/config';
 import {
   canEditSettings as canEditSettingsFor,
   canManageMembers as canManageMembersFor,
   canSendMessages as canSendMessagesFor,
   isAccountRole,
   type AccountRole,
-} from "@/lib/auth/roles";
+} from '@/lib/auth/roles';
 
 interface Profile {
   id: string;
@@ -40,9 +47,18 @@ interface Profile {
 interface AccountSummary {
   id: string;
   name: string;
+  logo_url: string | null;
   /** Default deal currency (ISO-4217). NOT NULL DEFAULT 'USD' in the
    *  DB (migration 021); narrowed to DEFAULT_CURRENCY when absent. */
   default_currency: string;
+  plan_code: string;
+  subscription_status: SubscriptionStatus;
+  trial_ends_at: string | null;
+  grace_ends_at: string | null;
+  industry: ActiveIndustry | null;
+  business_subtype: BusinessSubtype | null;
+  onboarding_completed: boolean;
+  onboarding_answers: OnboardingAnswers;
 }
 
 interface AuthContextValue {
@@ -102,6 +118,8 @@ interface AuthContextValue {
   canEditSettings: boolean;
   /** True if the caller can send messages and edit operational data (agent+). */
   canSendMessages: boolean;
+  /** Global Nexora role, separate from the role inside one company. */
+  platformRole: PlatformRole | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -115,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [platformRole, setPlatformRole] = useState<PlatformRole | null>(null);
   const [loading, setLoading] = useState(true);
   // Tracked separately from `loading`. The session settles fast (one
   // local cookie read); the profile fetch crosses the network and
@@ -136,15 +155,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     lastFetchedUserIdRef.current = userId;
     try {
       const { data, error } = await supabase
-        .from("profiles")
+        .from('profiles')
         .select(
-          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
+          'id, full_name, email, avatar_url, role, beta_features, account_id, account_role'
         )
-        .eq("user_id", userId)
+        .eq('user_id', userId)
         .maybeSingle();
 
       if (error) {
-        console.error("[AuthProvider] fetchProfile error:", {
+        console.error('[AuthProvider] fetchProfile error:', {
           message: error.message,
           details: error.details,
           hint: error.hint,
@@ -168,14 +187,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let accountRow: AccountSummary | null = null;
         if (data.account_id) {
           const { data: account, error: accountErr } = await supabase
-            .from("accounts")
+            .from('accounts')
             // default_currency added in migration 021; narrowed to the
             // USD fallback below for older schemas where it reads null.
-            .select("id, name, default_currency")
-            .eq("id", data.account_id)
+            .select(
+              'id, name, logo_url, default_currency, plan_code, subscription_status, trial_ends_at, grace_ends_at, industry, business_subtype, onboarding_completed, onboarding_answers'
+            )
+            .eq('id', data.account_id)
             .maybeSingle();
           if (accountErr) {
-            console.error("[AuthProvider] fetchAccount error:", {
+            console.error('[AuthProvider] fetchAccount error:', {
               message: accountErr.message,
               details: accountErr.details,
               hint: accountErr.hint,
@@ -185,7 +206,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             accountRow = {
               id: account.id,
               name: account.name,
+              logo_url: account.logo_url ?? null,
               default_currency: account.default_currency ?? DEFAULT_CURRENCY,
+              plan_code: account.plan_code ?? 'professional',
+              subscription_status: account.subscription_status ?? 'active',
+              trial_ends_at: account.trial_ends_at ?? null,
+              grace_ends_at: account.grace_ends_at ?? null,
+              industry: account.industry ?? null,
+              business_subtype: account.business_subtype ?? null,
+              onboarding_completed: account.onboarding_completed !== false,
+              onboarding_answers:
+                account.onboarding_answers &&
+                typeof account.onboarding_answers === 'object'
+                  ? account.onboarding_answers
+                  : {},
             };
           }
         }
@@ -214,11 +248,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           account_role: accountRole,
         });
         setAccount(accountRow);
+
+        // The platform endpoint performs the secure server-side role check
+        // and bootstraps explicitly configured creator emails. A 403 simply
+        // means this is a normal company user.
+        const platformResponse = await fetch('/api/platform/me', {
+          cache: 'no-store',
+        });
+        if (platformResponse.ok) {
+          const platformData = (await platformResponse.json()) as {
+            role?: PlatformRole;
+          };
+          setPlatformRole(platformData.role ?? null);
+        } else {
+          setPlatformRole(null);
+        }
       } else {
         lastFetchedUserIdRef.current = null;
       }
     } catch (err) {
-      console.error("[AuthProvider] fetchProfile threw:", err);
+      console.error('[AuthProvider] fetchProfile threw:', err);
       lastFetchedUserIdRef.current = null;
     } finally {
       setProfileLoading(false);
@@ -231,7 +280,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const safetyTimer = setTimeout(() => {
       if (mounted) {
-        console.warn("[AuthProvider] getSession() timed out after 3s");
+        console.warn('[AuthProvider] getSession() timed out after 3s');
         setLoading(false);
         setProfileLoading(false);
       }
@@ -244,7 +293,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           error,
         } = await supabase.auth.getSession();
 
-        if (error) console.error("[AuthProvider] getSession error:", error.message);
+        if (error)
+          console.error('[AuthProvider] getSession error:', error.message);
 
         if (!mounted) return;
         const currentUser = session?.user ?? null;
@@ -263,7 +313,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfileLoading(false);
         }
       } catch (err) {
-        console.error("[AuthProvider] init threw:", err);
+        console.error('[AuthProvider] init threw:', err);
       } finally {
         if (mounted) setLoading(false);
         clearTimeout(safetyTimer);
@@ -287,6 +337,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         lastFetchedUserIdRef.current = null;
         setProfile(null);
         setAccount(null);
+        setPlatformRole(null);
         setProfileLoading(false);
       }
 
@@ -306,7 +357,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setProfile(null);
     setAccount(null);
-    window.location.href = "/login";
+    setPlatformRole(null);
+    // A full reload clears every account-scoped provider and server payload.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.href = '/login';
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -323,10 +377,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {
       accountRole: role,
       accountId: profile?.account_id ?? null,
-      isOwner: role === "owner",
-      isAdmin: role === "admin",
-      isAgent: role === "agent",
-      isViewer: role === "viewer",
+      isOwner: role === 'owner',
+      isAdmin: role === 'admin',
+      isAgent: role === 'agent',
+      isViewer: role === 'viewer',
       canManageMembers: role ? canManageMembersFor(role) : false,
       canEditSettings: role ? canEditSettingsFor(role) : false,
       canSendMessages: role ? canSendMessagesFor(role) : false,
@@ -343,6 +397,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         refreshProfile,
         account,
+        platformRole,
         defaultCurrency: account?.default_currency ?? DEFAULT_CURRENCY,
         ...derived,
       }}
@@ -369,10 +424,13 @@ export function useAuth(): AuthContextValue {
       loading: false,
       profileLoading: false,
       signOut: async () => {
-        window.location.href = "/login";
+        // Fallback context has no router; force a clean unauthenticated tree.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.href = '/login';
       },
       refreshProfile: async () => {},
       account: null,
+      platformRole: null,
       defaultCurrency: DEFAULT_CURRENCY,
       accountId: null,
       accountRole: null,

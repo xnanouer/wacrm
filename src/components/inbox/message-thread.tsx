@@ -1,6 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  type DragEvent,
+} from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { usePresence } from '@/hooks/use-presence';
@@ -17,6 +24,7 @@ import type {
   MessageTemplate,
   Profile,
   QuickReply,
+  Tag,
 } from '@/types';
 import {
   MessageSquare,
@@ -35,9 +43,25 @@ import {
   Loader2,
   PanelRightOpen,
   PanelRightClose,
+  Tags,
+  UploadCloud,
+  ReceiptText,
+  BrainCircuit,
+  Bot,
+  UserCheck,
 } from 'lucide-react';
 import { format, isToday, isYesterday, differenceInHours } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,6 +80,7 @@ import { deleteAccountMedia } from '@/lib/storage/upload-media';
 import { TemplatePicker } from './template-picker';
 import { buildReplyPreview } from './reply-quote';
 import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 import { TicketStatusBadge } from './ticket-status-badge';
 import { QuickReplyPicker } from './quick-reply-picker';
 import { ChannelBadge } from './channel-badge';
@@ -63,6 +88,16 @@ import {
   getChannelMeta,
   resolveConversationChannel,
 } from '@/lib/channels/channel-meta';
+import { requiresWhatsAppCustomerCareWindow } from '@/lib/inbox/conversations';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import { QuotationEditor } from '@/components/quotes/quotation-editor';
+import { getConversationAiIndicator } from '@/lib/ai/conversation-state';
 
 interface ReplyDraft {
   id: string;
@@ -185,6 +220,7 @@ export function MessageThread({
   contactPanelOpen,
   onToggleContactPanel,
 }: MessageThreadProps) {
+  const router = useRouter();
   const { user, accountRole } = useAuth();
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
@@ -193,10 +229,23 @@ export function MessageThread({
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [ticketActionLoading, setTicketActionLoading] = useState(false);
+  const [coachActionLoading, setCoachActionLoading] = useState(false);
+  const [resolutionDialogOpen, setResolutionDialogOpen] = useState(false);
+  const [quotationOpen, setQuotationOpen] = useState(false);
+  const [resolutionTagsLoading, setResolutionTagsLoading] = useState(false);
+  const [resolutionTags, setResolutionTags] = useState<Tag[]>([]);
+  const [resolutionTagIds, setResolutionTagIds] = useState<string[]>([]);
+  const [resolutionNote, setResolutionNote] = useState('');
   const [composerInsertion, setComposerInsertion] = useState<{
     id: string;
     text: string;
   } | null>(null);
+  const [droppedAttachment, setDroppedAttachment] = useState<{
+    id: string;
+    file: File;
+  } | null>(null);
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const fileDragDepthRef = useRef(0);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   // Purely visual spin state for the manual-refresh button. The actual
   // refetch is fire-and-forget through `onRefresh` (which bumps the
@@ -221,6 +270,61 @@ export function MessageThread({
     }, 700);
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+
+  const hasDraggedFiles = useCallback(
+    (event: DragEvent<HTMLElement>) =>
+      Array.from(event.dataTransfer.types).includes('Files'),
+    []
+  );
+
+  const handleFileDragEnter = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      fileDragDepthRef.current += 1;
+      setFileDragActive(true);
+    },
+    [hasDraggedFiles]
+  );
+
+  const handleFileDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    },
+    [hasDraggedFiles]
+  );
+
+  const handleFileDragLeave = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+      if (fileDragDepthRef.current === 0) setFileDragActive(false);
+    },
+    [hasDraggedFiles]
+  );
+
+  const handleFileDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    fileDragDepthRef.current = 0;
+    setFileDragActive(false);
+
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0) return;
+    if (files.length > 1) {
+      toast.info(
+        'Se adjuntará el primer archivo. Nexora envía uno por mensaje.'
+      );
+    }
+    setDroppedAttachment({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file: files[0]!,
+    });
+  }, []);
 
   // Profiles are bounded by RLS to rows the current user is allowed to
   // see — today that's just the current user, but the dropdown keeps the
@@ -639,10 +743,130 @@ export function MessageThread({
 
   const handleStatusChange = useCallback(
     async (status: ConversationStatus) => {
+      if (status === 'closed') {
+        if (!conversation || conversation.status === 'pending') {
+          toast.error('Primero debes aceptar el ticket');
+          return;
+        }
+        setResolutionNote('');
+        setResolutionTagIds([]);
+        setResolutionTags([]);
+        setResolutionTagsLoading(true);
+        setResolutionDialogOpen(true);
+        try {
+          const response = await fetch(`/api/tickets/${conversation.id}/tags`, {
+            cache: 'no-store',
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(
+              payload.error ?? 'No se pudieron cargar las etiquetas'
+            );
+          }
+          setResolutionTags((payload.tags ?? []) as Tag[]);
+        } catch (error) {
+          setResolutionTags([]);
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : 'No se pudieron cargar las etiquetas'
+          );
+        } finally {
+          setResolutionTagsLoading(false);
+        }
+        return;
+      }
       await performTicketAction({ action: 'status', status });
     },
-    [performTicketAction]
+    [conversation, performTicketAction]
   );
+
+  const handleResolveTicket = useCallback(async () => {
+    if (!resolutionNote.trim() || resolutionTagIds.length === 0) return;
+    const ticket = await performTicketAction({
+      action: 'resolve',
+      note: resolutionNote.trim(),
+      tagIds: resolutionTagIds,
+    });
+    if (!ticket) return;
+    setResolutionDialogOpen(false);
+    setResolutionNote('');
+    setResolutionTagIds([]);
+    toast.success('Ticket resuelto con motivo y etiqueta');
+  }, [performTicketAction, resolutionNote, resolutionTagIds]);
+
+  const handleCoachAnalysis = useCallback(async () => {
+    if (!conversation || coachActionLoading) return;
+    setCoachActionLoading(true);
+    try {
+      const response = await fetch('/api/ai/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: conversation.id }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        result?: {
+          status?: 'completed' | 'existing' | 'skipped';
+          reason?: string;
+        };
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || 'No se pudo analizar la conversacion');
+      }
+
+      if (payload.result?.status === 'completed') {
+        toast.success('Coach IA preparo una nueva recomendacion.', {
+          action: {
+            label: 'Ver',
+            onClick: () => router.push('/coach'),
+          },
+        });
+        return;
+      }
+      if (payload.result?.status === 'existing') {
+        toast.info('Esta atencion ya cuenta con una recomendacion.', {
+          action: {
+            label: 'Ver',
+            onClick: () => router.push('/coach'),
+          },
+        });
+        return;
+      }
+
+      const reasonMessages: Record<string, string> = {
+        disabled: 'Un administrador debe activar el Coach IA.',
+        ai_in_control:
+          'No se analiza esta conversacion porque esta bajo control del Agente IA.',
+        unassigned:
+          'Asigna la conversacion a un ejecutivo antes de analizarla.',
+        insufficient_human_messages:
+          'Aun faltan respuestas humanas para generar una recomendacion util.',
+        ai_unavailable:
+          'La Inteligencia Artificial de Nexora no esta disponible en este momento.',
+      };
+      toast.info(
+        reasonMessages[payload.result?.reason ?? ''] ||
+          'La conversacion todavia no cumple las condiciones de analisis.'
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo analizar la conversacion'
+      );
+    } finally {
+      setCoachActionLoading(false);
+    }
+  }, [coachActionLoading, conversation, router]);
+
+  const toggleResolutionTag = useCallback((tagId: string) => {
+    setResolutionTagIds((current) =>
+      current.includes(tagId)
+        ? current.filter((currentId) => currentId !== tagId)
+        : [...current, tagId]
+    );
+  }, []);
 
   const handleOpenTemplates = useCallback(() => {
     setTemplateModalOpen(true);
@@ -856,10 +1080,10 @@ export function MessageThread({
         <div className="bg-muted flex h-16 w-16 items-center justify-center rounded-full">
           <MessageSquare className="text-muted-foreground h-8 w-8" />
         </div>
-        <h3 className="text-muted-foreground mt-4 text-sm font-medium">
+        <h3 className="text-muted-foreground mt-4 text-base font-medium">
           Select a conversation
         </h3>
-        <p className="text-muted-foreground mt-1 text-xs">
+        <p className="text-muted-foreground mt-1 text-sm">
           Choose a conversation from the left to start messaging
         </p>
       </div>
@@ -870,6 +1094,11 @@ export function MessageThread({
   const conversationChannel = resolveConversationChannel(conversation.channel);
   const channelMeta = getChannelMeta(conversationChannel);
   const isWhatsAppChannel = conversationChannel === 'whatsapp';
+  const hasWhatsAppCustomerCareWindow =
+    requiresWhatsAppCustomerCareWindow(conversation);
+  const socialChannelConnected =
+    !isWhatsAppChannel &&
+    conversation.channel_connection?.status === 'connected';
   const messageGroups = groupMessagesByDate(messages);
   const assignedAgentId = conversation.assigned_agent_id ?? null;
   const currentAssignee = profiles.find((p) => p.user_id === assignedAgentId);
@@ -883,6 +1112,18 @@ export function MessageThread({
     accountRole === 'owner' ||
     accountRole === 'admin' ||
     accountRole === 'supervisor';
+  const aiHandling = ['ai_active', 'ai_after_hours'].includes(
+    conversation.ai_state ?? 'idle'
+  );
+  const aiIndicator = getConversationAiIndicator(conversation);
+  const canControlAi =
+    Boolean(assignedAgentId) &&
+    (canInterveneInAnyTicket || assignedAgentId === user?.id) &&
+    ['open', 'waiting'].includes(conversation.status);
+  const canRequestCoach =
+    Boolean(assignedAgentId) &&
+    !aiHandling &&
+    (canInterveneInAnyTicket || assignedAgentId === user?.id);
 
   return (
     // `min-w-0` is load-bearing: the page already puts min-w-0 on the
@@ -893,10 +1134,31 @@ export function MessageThread({
     // clipped and the hover toolbar overlaps the Tags panel. Letting the
     // root shrink lets the bubbles' break-words / max-w caps apply.
     // Issue #257.
-    <div className={cn('flex min-w-0 flex-1 flex-col', DOODLE_BG_CLASSES)}>
+    <div
+      className={cn('relative flex min-w-0 flex-1 flex-col', DOODLE_BG_CLASSES)}
+      onDragEnter={handleFileDragEnter}
+      onDragOver={handleFileDragOver}
+      onDragLeave={handleFileDragLeave}
+      onDrop={handleFileDrop}
+    >
+      {fileDragActive && (
+        <div className="border-primary/60 bg-background/90 pointer-events-none absolute inset-3 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed shadow-2xl backdrop-blur-sm">
+          <div className="text-center">
+            <span className="bg-primary/10 mx-auto flex size-14 items-center justify-center rounded-2xl">
+              <UploadCloud className="text-primary size-7" />
+            </span>
+            <p className="text-foreground mt-3 text-sm font-semibold">
+              Suelta el archivo para adjuntarlo
+            </p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Podrás revisarlo antes de enviarlo
+            </p>
+          </div>
+        </div>
+      )}
       {/* Header — solid card surface sits on top of the doodle so the
           name/avatar/dropdowns stay legible. */}
-      <div className="border-border bg-card flex items-center justify-between gap-2 border-b px-3 py-3 sm:px-4">
+      <div className="border-border/60 bg-card/95 flex min-h-[84px] items-center justify-between gap-4 border-b px-5 py-4 backdrop-blur-xl sm:px-6">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {/* Back-to-list button — mobile only. Hidden on lg+ where the
               conversation list is always visible next to the thread. */}
@@ -910,22 +1172,35 @@ export function MessageThread({
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
-          <div className="bg-muted text-foreground flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-sm font-medium">
+          <div className="bg-muted text-foreground flex size-12 flex-shrink-0 items-center justify-center rounded-full text-base font-semibold">
             {displayName.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <h2 className="text-foreground truncate text-sm font-semibold">
+            <h2 className="text-foreground truncate text-lg font-semibold tracking-[-0.025em]">
               {displayName}
             </h2>
-            <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
+            <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-sm">
               <span className="truncate">{contact.phone}</span>
               <span aria-hidden="true">·</span>
               <ChannelBadge channel={conversationChannel} />
+              {conversationChannel === 'whatsapp' &&
+                conversation.whatsapp_config?.connection_name && (
+                  <span
+                    className="border-primary/25 bg-primary/8 text-primary max-w-28 truncate rounded-full border px-2 py-0.5 text-[10px] font-medium"
+                    title={
+                      conversation.whatsapp_config.display_phone
+                        ? `${conversation.whatsapp_config.connection_name} · +${conversation.whatsapp_config.display_phone}`
+                        : conversation.whatsapp_config.connection_name
+                    }
+                  >
+                    {conversation.whatsapp_config.connection_name}
+                  </span>
+                )}
             </div>
           </div>
           {/* Session timer badge — hidden on the narrowest phones so
               the name + back arrow keep their room. */}
-          {isWhatsAppChannel && (
+          {hasWhatsAppCustomerCareWindow && (
             <Badge
               variant="outline"
               className={cn(
@@ -935,6 +1210,17 @@ export function MessageThread({
             >
               <Clock className="h-3 w-3" />
               {sessionInfo.remaining}
+            </Badge>
+          )}
+          {aiIndicator && (
+            <Badge className="border-primary/25 bg-primary/10 text-primary ml-1 hidden gap-1 border text-[10px] sm:inline-flex">
+              <span
+                className={cn(
+                  'size-1.5 rounded-full',
+                  aiIndicator.active ? 'bg-primary animate-pulse' : 'bg-current'
+                )}
+              />
+              {aiIndicator.label}
             </Badge>
           )}
         </div>
@@ -955,7 +1241,7 @@ export function MessageThread({
               aria-pressed={contactPanelOpen}
               title={contactPanelOpen ? 'Hide contact' : 'Show contact'}
               className={cn(
-                'hover:bg-muted hover:text-foreground hidden h-7 w-7 items-center justify-center rounded-md transition-colors lg:inline-flex',
+                'hover:bg-muted hover:text-foreground hidden size-9 items-center justify-center rounded-xl transition-colors lg:inline-flex',
                 contactPanelOpen ? 'text-primary' : 'text-muted-foreground'
               )}
             >
@@ -980,7 +1266,7 @@ export function MessageThread({
               aria-label="Refresh conversation"
               title="Refresh"
               className={cn(
-                'text-muted-foreground hover:bg-muted hover:text-foreground inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-60'
+                'text-muted-foreground hover:bg-muted hover:text-foreground inline-flex size-9 items-center justify-center rounded-xl transition-colors disabled:opacity-60'
               )}
             >
               <RefreshCw
@@ -991,7 +1277,7 @@ export function MessageThread({
 
           {/* Status dropdown */}
           <DropdownMenu>
-            <DropdownMenuTrigger className="hover:bg-muted inline-flex h-8 items-center justify-center gap-1 rounded-md sm:px-1">
+            <DropdownMenuTrigger className="hover:bg-muted inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-2">
               <TicketStatusBadge status={conversation.status} />
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
@@ -1003,6 +1289,11 @@ export function MessageThread({
                 <DropdownMenuItem
                   key={opt.value}
                   onClick={() => handleStatusChange(opt.value)}
+                  disabled={
+                    opt.value === conversation.status ||
+                    (opt.value === 'closed' &&
+                      conversation.status === 'pending')
+                  }
                   className={cn('text-sm', opt.color)}
                 >
                   {opt.label}
@@ -1011,11 +1302,57 @@ export function MessageThread({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <button
+            type="button"
+            disabled={!canControlAi || ticketActionLoading}
+            onClick={async () => {
+              const ticket = await performTicketAction({
+                action: aiHandling ? 'take_ai' : 'delegate_ai',
+              });
+              if (ticket) {
+                toast.success(
+                  aiHandling
+                    ? 'Conversación tomada por el equipo.'
+                    : 'El Agente IA atenderá los próximos mensajes.'
+                );
+              }
+            }}
+            title={
+              aiHandling
+                ? 'Pausar la IA y tomar la conversación'
+                : 'Mantener al ejecutivo asignado y delegar temporalmente a la IA'
+            }
+            className={cn(
+              'inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+              aiHandling
+                ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                : 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 border'
+            )}
+          >
+            {ticketActionLoading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : aiHandling ? (
+              <UserCheck className="size-3.5" />
+            ) : (
+              <Bot className="size-3.5" />
+            )}
+            {aiHandling ? 'Tomar conversación' : 'Dejar con IA'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setQuotationOpen(true)}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/25 inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5"
+          >
+            <ReceiptText className="size-4" />
+            Cotizar
+          </button>
+
           {/* Assign dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger
               className={cn(
-                'hover:bg-muted inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs',
+                'hover:bg-muted inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3 text-sm',
                 assignedAgentId ? 'text-primary' : 'text-muted-foreground'
               )}
             >
@@ -1087,10 +1424,10 @@ export function MessageThread({
         </div>
       </div>
 
-      <div className="border-border bg-card/95 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2 sm:px-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <div className="border-border/60 bg-card/92 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-5 py-3 sm:px-6">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <DropdownMenu>
-            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs">
+            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm">
               <Building2 className="size-3.5" />
               <span className="max-w-32 truncate">
                 {currentDepartment?.name ?? 'Sin departamento'}
@@ -1125,7 +1462,7 @@ export function MessageThread({
               type="button"
               onClick={() => performTicketAction({ action: 'accept' })}
               disabled={ticketActionLoading}
-              className="bg-primary text-primary-foreground hover:bg-primary-hover inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium"
+              className="bg-primary text-primary-foreground hover:bg-primary-hover inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold"
             >
               {ticketActionLoading ? (
                 <Loader2 className="size-3.5 animate-spin" />
@@ -1137,7 +1474,7 @@ export function MessageThread({
           )}
 
           <DropdownMenu>
-            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs">
+            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm">
               <ArrowRightLeft className="size-3.5" />
               Transferir
               <ChevronDown className="size-3" />
@@ -1172,7 +1509,7 @@ export function MessageThread({
                 conversation.status === 'waiting' ? 'open' : 'waiting'
               )
             }
-            className="border-border text-foreground hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            className="border-border text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
             <PauseCircle className="size-3.5" />
             {conversation.status === 'waiting' ? 'Retomar' : 'En espera'}
@@ -1182,7 +1519,7 @@ export function MessageThread({
             <button
               type="button"
               onClick={() => handleStatusChange('open')}
-              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium"
+              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium"
             >
               <RotateCcw className="size-3.5" />
               Reabrir
@@ -1191,7 +1528,15 @@ export function MessageThread({
             <button
               type="button"
               onClick={() => handleStatusChange('closed')}
-              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium"
+              disabled={
+                ticketActionLoading || conversation.status === 'pending'
+              }
+              title={
+                conversation.status === 'pending'
+                  ? 'Primero debes aceptar el ticket'
+                  : 'Resolver con etiqueta y nota obligatorias'
+              }
+              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
             >
               <CheckCircle2 className="size-3.5" />
               Resolver
@@ -1216,16 +1561,62 @@ export function MessageThread({
             }}
             disabled={!onToggleContactPanel}
             title="Las notas internas están en la ficha del cliente"
-            className="text-muted-foreground hover:bg-muted hover:text-foreground hidden h-8 items-center gap-1.5 rounded-md px-2 text-xs disabled:opacity-50 xl:inline-flex"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground hidden h-10 items-center gap-2 rounded-xl px-3 text-sm disabled:opacity-50 xl:inline-flex"
           >
             <StickyNote className="size-3.5" />
             Notas internas
           </button>
+          {canRequestCoach && (
+            <button
+              type="button"
+              onClick={handleCoachAnalysis}
+              disabled={coachActionLoading}
+              title="Analiza solo las respuestas humanas de esta conversacion"
+              className="border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 hidden h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold disabled:opacity-50 xl:inline-flex"
+            >
+              {coachActionLoading ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <BrainCircuit className="size-3.5" />
+              )}
+              Analizar atencion
+            </button>
+          )}
         </div>
       </div>
 
+      {aiIndicator && (
+        <div className="border-primary/20 bg-primary/5 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl">
+              <Bot className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{aiIndicator.label}</p>
+              <p className="text-muted-foreground truncate text-xs">
+                {aiIndicator.detail}
+              </p>
+            </div>
+          </div>
+          <div className="text-muted-foreground flex items-center gap-4 text-xs">
+            <span>
+              Ejecutivo:{' '}
+              <strong className="text-foreground">{assignLabel}</strong>
+            </span>
+            {(conversation.after_hours_ai_reply_count ?? 0) > 0 && (
+              <span>
+                Respuestas de cobertura:{' '}
+                <strong className="text-foreground">
+                  {conversation.after_hours_ai_reply_count}
+                </strong>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-primary h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
@@ -1300,24 +1691,50 @@ export function MessageThread({
       {/* Composer */}
       <MessageComposer
         conversationId={conversation.id}
-        sessionExpired={isWhatsAppChannel && sessionInfo.expired}
+        departmentId={conversation.department_id}
+        sessionExpired={hasWhatsAppCustomerCareWindow && sessionInfo.expired}
         onSend={handleSend}
         onSendMedia={handleSendMedia}
         onOpenTemplates={handleOpenTemplates}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
         insertDraft={composerInsertion}
+        droppedAttachment={droppedAttachment}
+        textOnly={!isWhatsAppChannel}
         channelUnavailableReason={
-          isWhatsAppChannel
+          isWhatsAppChannel || socialChannelConnected
             ? undefined
-            : `El envío por ${channelMeta.label} se habilitará cuando conectemos y validemos ese canal.`
+            : `La conexión de ${channelMeta.label} no está activa. Revísala en Ajustes → Canales.`
         }
         ticketLocked={
           conversation.status === 'pending' ||
           conversation.status === 'closed' ||
+          aiHandling ||
           (!canInterveneInAnyTicket && assignedAgentId !== user?.id)
         }
       />
+
+      <Sheet open={quotationOpen} onOpenChange={setQuotationOpen}>
+        <SheetContent
+          side="right"
+          className="w-[min(96vw,1180px)] max-w-[1180px] gap-0 overflow-y-auto sm:max-w-[1180px]"
+        >
+          <SheetHeader className="border-border bg-popover sticky top-0 z-20 border-b pr-14">
+            <SheetTitle>Nueva cotización para {displayName}</SheetTitle>
+            <SheetDescription>
+              Completa, previsualiza y guarda sin salir de la conversación.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="p-4 sm:p-6">
+            <QuotationEditor
+              conversationId={conversation.id}
+              embedded
+              onCancel={() => setQuotationOpen(false)}
+              onSaved={() => setQuotationOpen(false)}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {isWhatsAppChannel && (
         <TemplatePicker
@@ -1326,6 +1743,153 @@ export function MessageThread({
           onSelect={handleSendTemplate}
         />
       )}
+
+      <Dialog
+        open={resolutionDialogOpen}
+        onOpenChange={(open) => {
+          if (!ticketActionLoading) setResolutionDialogOpen(open);
+        }}
+      >
+        <DialogContent className="h-[min(44rem,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-4xl">
+          <DialogHeader className="border-border bg-muted/30 border-b px-6 py-5 pr-14">
+            <DialogTitle className="flex items-center gap-3 text-lg">
+              <span className="bg-primary/10 flex size-9 items-center justify-center rounded-xl">
+                <CheckCircle2 className="text-primary size-5" />
+              </span>
+              Resolver conversación
+            </DialogTitle>
+            <DialogDescription>
+              Cierre de {contact?.name || contact?.phone || 'este contacto'}.
+              Selecciona una etiqueta y registra el motivo para el historial
+              administrativo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid min-h-0 gap-5 overflow-y-auto px-6 py-5 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)]">
+            <div className="border-border bg-background flex min-h-72 flex-col rounded-2xl border p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="text-foreground flex items-center gap-2 text-sm font-medium">
+                  <Tags className="size-4" />
+                  Etiqueta de resolución
+                  <span className="text-destructive">*</span>
+                </label>
+                <span className="text-muted-foreground text-xs">
+                  {resolutionTagIds.length} seleccionada
+                  {resolutionTagIds.length === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              {resolutionTagsLoading ? (
+                <div className="border-border text-muted-foreground flex items-center justify-center gap-2 rounded-xl border border-dashed py-6 text-sm">
+                  <Loader2 className="size-4 animate-spin" />
+                  Cargando etiquetas...
+                </div>
+              ) : resolutionTags.length === 0 ? (
+                <div className="border-border bg-muted/40 rounded-xl border border-dashed p-4 text-sm">
+                  <p className="text-foreground font-medium">
+                    No hay etiquetas disponibles
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Un administrador debe crear al menos una en Configuración →
+                    Tickets antes de poder resolver conversaciones.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid max-h-[25rem] grid-cols-1 gap-2 overflow-y-auto rounded-xl border p-3 sm:grid-cols-2 md:flex-1 md:grid-cols-1">
+                  {resolutionTags.map((tag) => {
+                    const selected = resolutionTagIds.includes(tag.id);
+                    return (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => toggleResolutionTag(tag.id)}
+                        className={cn(
+                          'inline-flex w-full items-center justify-start gap-2 rounded-xl border px-3 py-2.5 text-left text-xs font-medium transition-all',
+                          selected
+                            ? 'ring-primary/30 ring-2'
+                            : 'opacity-75 hover:opacity-100'
+                        )}
+                        style={{
+                          color: tag.color,
+                          borderColor: `${tag.color}${selected ? 'aa' : '55'}`,
+                          backgroundColor: `${tag.color}${selected ? '24' : '10'}`,
+                        }}
+                      >
+                        <span
+                          className="size-2 rounded-full"
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        {tag.name}
+                        {selected ? <Check className="size-3" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="border-border bg-background flex min-h-72 flex-col rounded-2xl border p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label
+                  htmlFor="resolution-note"
+                  className="text-foreground text-sm font-medium"
+                >
+                  Motivo y observaciones{' '}
+                  <span className="text-destructive">*</span>
+                </label>
+                <span className="text-muted-foreground text-xs">
+                  {resolutionNote.length}/5000
+                </span>
+              </div>
+              <Textarea
+                id="resolution-note"
+                value={resolutionNote}
+                onChange={(event) => setResolutionNote(event.target.value)}
+                maxLength={5000}
+                rows={12}
+                placeholder="Ej.: Cliente confirmó que su consulta fue resuelta y no requiere seguimiento adicional."
+                disabled={ticketActionLoading}
+                className="min-h-64 flex-1 resize-none text-sm leading-relaxed"
+              />
+              <p className="text-muted-foreground mt-1.5 text-xs">
+                Es una nota interna: el cliente no la recibirá por WhatsApp.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="border-border bg-muted/30 mx-0 mb-0 rounded-none px-6 py-4 sm:items-center">
+            <p className="text-muted-foreground mr-auto hidden text-xs sm:block">
+              La resolución quedará registrada con tu nombre, fecha y hora.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setResolutionDialogOpen(false)}
+              disabled={ticketActionLoading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleResolveTicket}
+              disabled={
+                ticketActionLoading ||
+                resolutionTagsLoading ||
+                resolutionTagIds.length === 0 ||
+                !resolutionNote.trim()
+              }
+            >
+              {ticketActionLoading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="size-4" />
+              )}
+              Confirmar resolución
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

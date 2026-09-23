@@ -157,6 +157,13 @@ export interface ContactNote {
 
 export type ConversationStatus = 'pending' | 'open' | 'waiting' | 'closed';
 export type ConversationChannel = 'whatsapp' | 'facebook' | 'instagram';
+export type ConversationAiState =
+  | 'idle'
+  | 'ai_active'
+  | 'ai_after_hours'
+  | 'ai_paused'
+  | 'human_active'
+  | 'waiting_for_human';
 
 export type ChannelConnectionStatus =
   'disconnected' | 'pending' | 'connected' | 'error';
@@ -173,6 +180,21 @@ export interface ChannelConnection {
   connected_at?: string;
   token_expires_at?: string;
   created_by_user_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContactChannelIdentity {
+  id: string;
+  account_id: string;
+  contact_id: string;
+  channel: Exclude<ConversationChannel, 'whatsapp'>;
+  channel_connection_id: string;
+  external_participant_id: string;
+  display_name?: string;
+  username?: string;
+  avatar_url?: string;
+  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -213,7 +235,13 @@ export type TicketEventType =
   | 'status_changed'
   | 'waiting'
   | 'closed'
-  | 'reopened';
+  | 'reopened'
+  | 'ai_coverage_started'
+  | 'ai_coverage_paused'
+  | 'ai_waiting_human'
+  | 'ai_no_points'
+  | 'ai_returned'
+  | 'ai_manual_activation';
 
 export interface TicketEvent {
   id: string;
@@ -251,6 +279,7 @@ export interface QuickReply {
   shortcut?: string;
   body: string;
   is_active: boolean;
+  visibility?: 'shared' | 'personal';
   created_by_user_id?: string;
   created_at: string;
   updated_at: string;
@@ -269,6 +298,18 @@ export interface Conversation {
   assigned_agent_id?: string;
   department_id?: string;
   whatsapp_config_id?: string;
+  ai_state?: ConversationAiState;
+  ai_autoreply_disabled?: boolean;
+  ai_reply_count?: number;
+  ai_pause_reason?: string;
+  ai_paused_at?: string;
+  after_hours_ai_reply_count?: number;
+  last_ai_reply_at?: string;
+  last_human_takeover_at?: string;
+  human_takeover_by?: string;
+  human_requested_at?: string;
+  manual_ai_activated_at?: string;
+  manual_ai_activated_by?: string;
   accepted_at?: string;
   accepted_by_user_id?: string;
   closed_at?: string;
@@ -278,6 +319,7 @@ export interface Conversation {
   first_response_at?: string;
   last_message_text?: string;
   last_message_at?: string;
+  last_message_sender_type?: SenderType;
   unread_count: number;
   created_at: string;
   updated_at: string;
@@ -285,17 +327,32 @@ export interface Conversation {
   department?: Department;
   whatsapp_config?: {
     id: string;
-    phone_number_id: string;
-    display_name?: string;
-    display_phone?: string;
+    provider?: 'cloud_api' | 'whatsapp_web';
+    connection_name: string;
+    phone_number_id?: string | null;
+    display_name?: string | null;
+    display_phone?: string | null;
   };
+  channel_connection?: Pick<
+    ChannelConnection,
+    'id' | 'channel' | 'display_name' | 'status' | 'metadata'
+  >;
 }
 
 // ============================================================
 // Notifications (migration 027)
 // ============================================================
 
-export type NotificationType = 'conversation_assigned';
+export type NotificationType =
+  | 'conversation_assigned'
+  | 'catalog_approval_requested'
+  | 'catalog_item_approved'
+  | 'catalog_item_rejected'
+  | 'support_booking_confirmed'
+  | 'support_booking_rescheduled'
+  | 'support_booking_cancelled'
+  | 'nexora_points_gift'
+  | 'ai_coaching_ready';
 
 export interface Notification {
   id: string;
@@ -305,6 +362,9 @@ export interface Notification {
   type: NotificationType;
   conversation_id?: string;
   contact_id?: string;
+  catalog_item_id?: string;
+  support_booking_id?: string;
+  coaching_review_id?: string;
   /** Who triggered it. Null when an automation/system assigned it. */
   actor_user_id?: string;
   title: string;
@@ -347,6 +407,10 @@ export interface Message {
    * cue (renders with a "↩ button reply" affordance).
    */
   interactive_reply_id?: string;
+  /** Set when this message carries a generated Nexora quotation artifact. */
+  quotation_id?: string;
+  /** Exact immutable quotation version attached to the message. */
+  quotation_version_id?: string;
 }
 
 export type ReactionActor = 'customer' | 'agent';
@@ -364,9 +428,12 @@ export interface MessageReaction {
 export interface WhatsAppConfig {
   id: string;
   user_id: string;
-  phone_number_id: string;
+  provider?: 'cloud_api' | 'whatsapp_web';
+  connection_name?: string;
+  is_default?: boolean;
+  phone_number_id?: string | null;
   waba_id?: string;
-  access_token: string;
+  access_token?: string;
   verify_token?: string;
   status: 'connected' | 'disconnected';
   connected_at?: string;

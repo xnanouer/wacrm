@@ -19,11 +19,7 @@
 
 import { NextResponse } from 'next/server';
 
-import {
-  getCurrentAccount,
-  requireRole,
-  toErrorResponse,
-} from '@/lib/auth/account';
+import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { generateApiKey } from '@/lib/api-keys/keys';
 import { normalizeScopes } from '@/lib/api-keys/scopes';
 import {
@@ -44,9 +40,7 @@ const SAFE_COLUMNS =
 
 export async function GET() {
   try {
-    // Any member can view the roster (RLS allows it); we just need a
-    // resolved account context.
-    const ctx = await getCurrentAccount();
+    const ctx = await requireRole('admin');
 
     const { data, error } = await ctx.supabase
       .from('api_keys')

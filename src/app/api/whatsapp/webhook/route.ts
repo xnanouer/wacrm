@@ -8,7 +8,12 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
+import { transcribeInboundAudio } from '@/lib/ai/inbound-audio';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
+import {
+  reopenedTicketState,
+  resolveReturningAgent,
+} from '@/lib/tickets/reopen-assignment';
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -286,7 +291,7 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           `Multiple configs (${configRows.length}) found for phone_number_id:`,
           phoneNumberId,
           '— inbound message dropped. Resolve duplicates so each number maps to a single account.',
-          'Account owners:',
+          'Primary administrators:',
           configRows.map(
             (r: { account_id: string; user_id: string }) =>
               `${r.account_id} (admin ${r.user_id})`
@@ -696,8 +701,11 @@ async function processMessage(
     .eq('conversation_id', conversation.id)
     .eq('sender_type', 'customer');
   const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0;
+  const receivedAt = new Date(
+    parseInt(message.timestamp, 10) * 1000
+  ).toISOString();
 
-  const { error: msgError } = await supabaseAdmin()
+  const { data: sourceMessage, error: msgError } = await supabaseAdmin()
     .from('messages')
     .insert({
       conversation_id: conversation.id,
@@ -707,24 +715,72 @@ async function processMessage(
       media_url: mediaUrl,
       message_id: message.id,
       status: 'delivered',
-      created_at: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+      created_at: receivedAt,
       reply_to_message_id: replyToInternalId,
       // Only populated for content_type='interactive'. Migration 010 added
       // the column; null for every other content_type so existing inserts
       // behave identically.
       interactive_reply_id: interactiveReplyId,
-    });
+    })
+    .select('id')
+    .single();
 
-  if (msgError) {
+  if (msgError || !sourceMessage) {
     console.error('Error inserting message:', msgError);
     return;
+  }
+
+  // If the customer writes again, every earlier outbound message in this
+  // conversation was necessarily read. This also repairs a missed Meta
+  // receipt without ever advancing a newer message by mistake.
+  const { error: readReceiptError } = await supabaseAdmin()
+    .from('messages')
+    .update({ status: 'read' })
+    .eq('conversation_id', conversation.id)
+    .in('sender_type', ['agent', 'bot'])
+    .in('status', ['sending', 'sent', 'delivered'])
+    .lt('created_at', receivedAt);
+  if (readReceiptError) {
+    console.error(
+      '[webhook] read receipt fallback failed:',
+      readReceiptError.message
+    );
+  }
+
+  let effectiveText = contentText ?? message.text?.body ?? '';
+  if (contentType === 'audio' && message.audio?.id) {
+    try {
+      const resolved = await getMediaUrl({
+        mediaId: message.audio.id,
+        accessToken,
+      });
+      const downloaded = await downloadMedia({
+        downloadUrl: resolved.url,
+        accessToken,
+      });
+      const transcript = await transcribeInboundAudio({
+        db: supabaseAdmin(),
+        accountId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        actorUserId: configOwnerUserId,
+        sourceMessageId: sourceMessage.id,
+        sourceMessageExternalId: message.id,
+        whatsappConfigId,
+        buffer: downloaded.buffer,
+        mimeType: downloaded.contentType || mediaType || 'audio/ogg',
+      });
+      if (transcript) effectiveText = transcript;
+    } catch (error) {
+      console.error('[webhook] audio transcription failed:', error);
+    }
   }
 
   // Update conversation
   const { error: convError } = await supabaseAdmin()
     .from('conversations')
     .update({
-      last_message_text: contentText || `[${message.type}]`,
+      last_message_text: effectiveText || `[${message.type}]`,
       last_message_at: new Date().toISOString(),
       unread_count: (conversation.unread_count || 0) + 1,
       updated_at: new Date().toISOString(),
@@ -773,7 +829,7 @@ async function processMessage(
         }
       : {
           kind: 'text',
-          text: contentText ?? message.text?.body ?? '',
+          text: effectiveText,
           meta_message_id: message.id,
         },
     isFirstInboundMessage,
@@ -785,7 +841,7 @@ async function processMessage(
   // message all exist before any step — including send_message — runs.
   // Fire-and-forget: a slow or failing automation must not block the
   // webhook's 200 OK response to Meta.
-  const inboundText = contentText ?? message.text?.body ?? '';
+  const inboundText = effectiveText;
   const automationTriggers: (
     | 'new_contact_created'
     | 'first_inbound_message'
@@ -830,6 +886,7 @@ async function processMessage(
       conversationId: conversation.id,
       contactId: contactRecord.id,
       configOwnerUserId,
+      sourceMessageExternalId: message.id,
     });
   }
 
@@ -845,7 +902,7 @@ async function processMessage(
     contact_id: contactRecord.id,
     whatsapp_message_id: message.id,
     content_type: contentType,
-    text: contentText,
+    text: effectiveText,
   });
 }
 
@@ -1088,11 +1145,15 @@ async function findOrCreateConversation(
 
   if (!findError && existing) {
     if (existing.status === 'closed') {
+      const returningAgentId = await resolveReturningAgent(supabaseAdmin(), {
+        accountId,
+        assignedAgentId: existing.assigned_agent_id,
+        departmentId: existing.department_id,
+      });
       const { data: reopened, error: reopenError } = await supabaseAdmin()
         .from('conversations')
         .update({
-          status: 'pending',
-          assigned_agent_id: null,
+          ...reopenedTicketState(returningAgentId),
           closed_at: null,
           closed_by_user_id: null,
           waiting_since: null,

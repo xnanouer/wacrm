@@ -7,7 +7,25 @@ import type { Conversation, Contact, Tag } from '@/types';
  * flattens them onto `contact.tags`.
  */
 export const CONVERSATION_SELECT =
-  '*, contact:contacts(*, contact_tags(tags(*))), department:departments!conversations_department_account_fkey(*), whatsapp_config:whatsapp_config!conversations_whatsapp_account_fkey(id, phone_number_id, display_name, display_phone)';
+  '*, contact:contacts(*, contact_tags(tags(*))), department:departments!conversations_department_account_fkey(*), whatsapp_config:whatsapp_config!conversations_whatsapp_account_fkey(id, provider, connection_name, phone_number_id, display_name, display_phone), channel_connection:channel_connections!conversations_channel_connection_account_fkey(id, channel, display_name, status, metadata)';
+
+/**
+ * Meta Cloud API only permits free-form WhatsApp replies inside the
+ * 24-hour customer-care window. A linked-device QR session is not governed
+ * by that composer restriction.
+ *
+ * Missing provider values are treated as Cloud API for legacy payloads so
+ * we never accidentally bypass Meta's restriction while older data loads.
+ */
+export function requiresWhatsAppCustomerCareWindow(
+  conversation: Conversation
+): boolean {
+  const channel = conversation.channel ?? 'whatsapp';
+  return (
+    channel === 'whatsapp' &&
+    conversation.whatsapp_config?.provider !== 'whatsapp_web'
+  );
+}
 
 /** Raw shape returned by {@link CONVERSATION_SELECT} before flattening. */
 type RawContact = Contact & { contact_tags?: { tags: Tag | null }[] };

@@ -124,6 +124,10 @@ export function rateLimitResponse(result: RateLimitResult): NextResponse {
 export const RATE_LIMITS = {
   /** Password login attempts, keyed by IP + normalized email. */
   login: { limit: 10, windowMs: 15 * 60_000 },
+  /** Broader IP bucket prevents bypass by rotating the submitted email. */
+  loginIp: { limit: 30, windowMs: 15 * 60_000 },
+  /** Private media uploads, per authenticated user. */
+  mediaUpload: { limit: 30, windowMs: 60_000 },
   /** Individual message send. 60/min per user = one per second
    *  sustained, comfortable for a live human typing. */
   send: { limit: 60, windowMs: 60_000 },
@@ -172,6 +176,11 @@ export const RATE_LIMITS = {
    *  key past the provider's own rate limit. 60/min ≈ three busy agents
    *  drafting flat-out. */
   aiDraftAccount: { limit: 60, windowMs: 60_000 },
+  /** Official Nexora support assistant. Kept separate from commercial AI. */
+  platformSupportUser: { limit: 20, windowMs: 60_000 },
+  platformSupportAccount: { limit: 60, windowMs: 60_000 },
+  /** Booking attempts are intentionally much tighter than chat messages. */
+  platformSupportBooking: { limit: 6, windowMs: 10 * 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import { CornerUpLeft, Copy, SmilePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -75,6 +75,19 @@ export function MessageActions({
     setTouchOpen(false);
   };
 
+  const handleDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest('[data-message-interactive="true"]')
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    handleReply();
+  };
+
   // Row alignment lives here (not in MessageBubble) so the `group/actions`
   // hover region matches the bubble's content width — hovering empty space
   // in the row no longer reveals the toolbar.
@@ -82,14 +95,16 @@ export function MessageActions({
     <div
       className={cn('flex w-full', isAgent ? 'justify-end' : 'justify-start')}
       onContextMenu={handleContextMenu}
+      onDoubleClick={handleDoubleClick}
       onBlur={() => setTouchOpen(false)}
+      title="Haz doble clic para responder"
     >
       {/* `min-w-0` lets this flex child actually respect the 75% cap.
        *  Default `min-width: auto` lets content (a long quote preview,
        *  an unbroken URL) push past the cap and shove the row past
        *  100%, which used to bleed across into the contact-sidebar
        *  area. See issue #165. */}
-      <div className="group/actions relative max-w-[75%] min-w-0">
+      <div className="group/actions relative max-w-[82%] min-w-0 sm:max-w-[76%]">
         {children}
         <div
           data-touch-open={touchOpen || pickerOpen ? 'true' : undefined}

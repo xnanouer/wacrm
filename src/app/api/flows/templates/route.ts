@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { listFlowTemplates } from '@/lib/flows/templates'
+import { NextResponse } from 'next/server';
+import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { listFlowTemplates } from '@/lib/flows/templates';
 
 /**
  * GET /api/flows/templates
@@ -10,15 +10,13 @@ import { listFlowTemplates } from '@/lib/flows/templates'
  * without bundling the full template payloads client-side. Bodies
  * are fetched only on actual clone via POST /api/flows.
  *
- * Available to any signed-in user. Flows is in soft-GA.
+ * Available to workspace administrators.
  */
 export async function GET() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    await requireRole('admin');
+  } catch (error) {
+    return toErrorResponse(error);
   }
   // Shallow shape so the client gallery doesn't have to know about
   // the full node tree.
@@ -29,6 +27,6 @@ export async function GET() {
     icon: t.icon,
     trigger_type: t.trigger_type,
     node_count: t.nodes.length,
-  }))
-  return NextResponse.json({ templates })
+  }));
+  return NextResponse.json({ templates });
 }

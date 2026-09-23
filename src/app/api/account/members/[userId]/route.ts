@@ -18,7 +18,7 @@ import { NextResponse } from 'next/server';
 import type { PostgrestError } from '@supabase/supabase-js';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { isAccountRole } from '@/lib/auth/roles';
+import { isAssignableAccountRole } from '@/lib/auth/roles';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -62,23 +62,10 @@ export async function PATCH(
     } | null;
     const role = body?.role;
 
-    if (!isAccountRole(role)) {
+    if (!isAssignableAccountRole(role)) {
       return NextResponse.json(
         {
-          error:
-            "'role' must be one of owner, admin, supervisor, agent, viewer",
-        },
-        { status: 400 }
-      );
-    }
-
-    // The RPC blocks promotion to / demotion from owner, but
-    // surface the friendlier 400 before crossing the wire too.
-    if (role === 'owner') {
-      return NextResponse.json(
-        {
-          error:
-            'Use POST /api/account/transfer-ownership to promote a member to owner',
+          error: "El rol debe ser 'Administrador' o 'Agente'",
         },
         { status: 400 }
       );

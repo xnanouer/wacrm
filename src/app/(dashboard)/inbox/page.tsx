@@ -11,14 +11,17 @@ import type {
   Conversation,
   Message,
   Contact,
+  Tag,
   ConversationStatus,
 } from '@/types';
 import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
+import { InboxBriefing } from '@/components/inbox/inbox-briefing';
 import { WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isConversationAwaitingReply } from '@/lib/inbox/response-waiting';
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -50,6 +53,40 @@ export default function InboxPage() {
    * once on conversationId-change as usual.
    */
   const [resyncToken, setResyncToken] = useState(0);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const priorityWaitingCount = conversations.filter((conversation) =>
+    isConversationAwaitingReply(conversation, currentTime)
+  ).length;
+
+  const handleContactTagsChanged = useCallback(
+    (nextTags: Tag[]) => {
+      setActiveContact((current) =>
+        current ? { ...current, tags: nextTags } : current
+      );
+      setActiveConversation((current) =>
+        current?.contact
+          ? { ...current, contact: { ...current.contact, tags: nextTags } }
+          : current
+      );
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === activeConversation?.id && conversation.contact
+            ? {
+                ...conversation,
+                contact: { ...conversation.contact, tags: nextTags },
+              }
+            : conversation
+        )
+      );
+    },
+    [activeConversation?.id]
+  );
 
   /**
    * Whether the desktop contact sidebar (tags / deals / notes) is shown.
@@ -105,11 +142,101 @@ export default function InboxPage() {
    * realtime channel). The ref is kept in sync via the effect below.
    */
   const knownConvIdsRef = useRef<Set<string>>(new Set());
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
+  const notificationAudioContextRef = useRef<AudioContext | null>(null);
   useEffect(() => {
     const next = new Set<string>();
     for (const c of conversations) next.add(c.id);
     knownConvIdsRef.current = next;
   }, [conversations]);
+
+  const getNotificationAudioContext = useCallback(() => {
+    if (typeof window === 'undefined') return null;
+    if (
+      notificationAudioContextRef.current &&
+      notificationAudioContextRef.current.state !== 'closed'
+    ) {
+      return notificationAudioContextRef.current;
+    }
+
+    type AudioContextConstructor = new () => AudioContext;
+    const AudioContextClass: AudioContextConstructor | undefined =
+      window.AudioContext ||
+      (
+        window as typeof window & {
+          webkitAudioContext?: AudioContextConstructor;
+        }
+      ).webkitAudioContext;
+    if (!AudioContextClass) return null;
+
+    notificationAudioContextRef.current = new AudioContextClass();
+    return notificationAudioContextRef.current;
+  }, []);
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      const context = getNotificationAudioContext();
+      if (context?.state === 'suspended') void context.resume().catch(() => {});
+    };
+
+    document.addEventListener('pointerdown', unlockAudio, {
+      capture: true,
+      once: true,
+    });
+    document.addEventListener('keydown', unlockAudio, {
+      capture: true,
+      once: true,
+    });
+    return () => {
+      document.removeEventListener('pointerdown', unlockAudio, true);
+      document.removeEventListener('keydown', unlockAudio, true);
+      const context = notificationAudioContextRef.current;
+      notificationAudioContextRef.current = null;
+      if (context && context.state !== 'closed') void context.close();
+    };
+  }, [getNotificationAudioContext]);
+
+  const playIncomingMessageSound = useCallback(() => {
+    const context = getNotificationAudioContext();
+    if (!context) return;
+
+    const playChime = () => {
+      const now = context.currentTime;
+      const notes = [
+        { frequency: 880, start: 0, duration: 0.1, volume: 0.055 },
+        { frequency: 1174.66, start: 0.12, duration: 0.14, volume: 0.04 },
+      ];
+
+      for (const note of notes) {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(note.frequency, now + note.start);
+        gain.gain.setValueAtTime(0.0001, now + note.start);
+        gain.gain.exponentialRampToValueAtTime(
+          note.volume,
+          now + note.start + 0.012
+        );
+        gain.gain.exponentialRampToValueAtTime(
+          0.0001,
+          now + note.start + note.duration
+        );
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(now + note.start);
+        oscillator.stop(now + note.start + note.duration + 0.02);
+      }
+    };
+
+    if (context.state === 'suspended') {
+      void context
+        .resume()
+        .then(playChime)
+        .catch(() => {});
+      return;
+    }
+    playChime();
+  }, [getNotificationAudioContext]);
 
   // Pull the conversation row with its `contact` joined and merge it
   // into state. Needed because Supabase Realtime payloads only carry the
@@ -195,6 +322,8 @@ export default function InboxPage() {
         .from('whatsapp_config')
         .select('status')
         .eq('account_id', accountId)
+        .eq('status', 'connected')
+        .limit(1)
         .maybeSingle();
 
       setWhatsappConnected(data?.status === 'connected');
@@ -209,6 +338,18 @@ export default function InboxPage() {
       const newMsg = event.new;
 
       if (event.eventType === 'INSERT') {
+        if (
+          newMsg.sender_type === 'customer' &&
+          !notifiedMessageIdsRef.current.has(newMsg.id)
+        ) {
+          notifiedMessageIdsRef.current.add(newMsg.id);
+          if (notifiedMessageIdsRef.current.size > 250) {
+            const oldest = notifiedMessageIdsRef.current.values().next().value;
+            if (oldest) notifiedMessageIdsRef.current.delete(oldest);
+          }
+          playIncomingMessageSound();
+        }
+
         // Add to messages if it belongs to active conversation
         if (
           activeConversation &&
@@ -238,6 +379,7 @@ export default function InboxPage() {
                     ...c,
                     last_message_text: newMsg.content_text ?? '',
                     last_message_at: newMsg.created_at,
+                    last_message_sender_type: newMsg.sender_type,
                     unread_count:
                       activeConversation?.id === newMsg.conversation_id
                         ? 0
@@ -263,7 +405,7 @@ export default function InboxPage() {
         );
       }
     },
-    [activeConversation, hydrateConversation]
+    [activeConversation, hydrateConversation, playIncomingMessageSound]
   );
 
   // Handle realtime conversation events
@@ -548,17 +690,19 @@ export default function InboxPage() {
   const hasActiveConv = !!activeConversation;
 
   return (
-    <div className="-m-4 flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden sm:-m-6">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
       {/* WhatsApp connection banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
       {whatsappConnected === false && (
         <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
           <WifiOff className="h-4 w-4 text-amber-400" />
-          <p className="text-xs text-amber-400">
+          <p className="text-sm text-amber-400">
             WhatsApp® is not connected. Go to Settings to connect your account.
           </p>
         </div>
       )}
+
+      <InboxBriefing priorityCount={priorityWaitingCount} />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
@@ -621,6 +765,7 @@ export default function InboxPage() {
             <ContactSidebar
               contact={activeContact}
               conversation={activeConversation}
+              onTagsChanged={handleContactTagsChanged}
             />
           </div>
         )}

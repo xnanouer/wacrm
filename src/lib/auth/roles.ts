@@ -16,6 +16,7 @@
 // ============================================================
 
 export type AccountRole = 'owner' | 'admin' | 'supervisor' | 'agent' | 'viewer';
+export type AssignableAccountRole = 'admin' | 'agent';
 
 /** Ordered list of every valid role, lowest privilege first. */
 export const ACCOUNT_ROLES: readonly AccountRole[] = [
@@ -24,6 +25,16 @@ export const ACCOUNT_ROLES: readonly AccountRole[] = [
   'supervisor',
   'admin',
   'owner',
+] as const;
+
+/**
+ * Roles exposed when an administrator creates or edits a user.
+ * `owner` remains an internal marker for the primary administrator so
+ * the account can never be left without a protected principal.
+ */
+export const ASSIGNABLE_ACCOUNT_ROLES: readonly AssignableAccountRole[] = [
+  'admin',
+  'agent',
 ] as const;
 
 /**
@@ -58,6 +69,16 @@ export function isAccountRole(value: unknown): value is AccountRole {
   return (
     typeof value === 'string' &&
     (ACCOUNT_ROLES as readonly string[]).includes(value)
+  );
+}
+
+/** Type-narrow an unknown value into one of the two public user roles. */
+export function isAssignableAccountRole(
+  value: unknown
+): value is AssignableAccountRole {
+  return (
+    typeof value === 'string' &&
+    (ASSIGNABLE_ACCOUNT_ROLES as readonly string[]).includes(value)
   );
 }
 

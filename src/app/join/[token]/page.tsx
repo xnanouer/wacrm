@@ -56,7 +56,7 @@ import { createClient } from '@/lib/supabase/client';
 interface PeekOk {
   ok: true;
   account_name: string;
-  role: 'admin' | 'supervisor' | 'agent' | 'viewer';
+  role: 'admin' | 'agent';
   expires_at: string;
 }
 interface PeekFail {
@@ -66,10 +66,8 @@ interface PeekFail {
 type PeekResult = PeekOk | PeekFail;
 
 const ROLE_LABEL: Record<PeekOk['role'], string> = {
-  admin: 'Admin',
-  supervisor: 'Supervisor',
-  agent: 'Agent',
-  viewer: 'Viewer',
+  admin: 'Administrador',
+  agent: 'Agente',
 };
 
 const FAIL_COPY: Record<PeekFail['reason'], { title: string; body: string }> = {
@@ -195,6 +193,7 @@ export default function JoinPage() {
       toast.success('Welcome to the team');
       // Full reload (not router.push) so AuthProvider re-fetches
       // the profile with the new account_id and account_role.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.href = '/dashboard';
     } catch (err) {
       console.error('[join] redeem error:', err);

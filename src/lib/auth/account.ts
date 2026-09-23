@@ -25,11 +25,16 @@
 //   }
 // ============================================================
 
-import { NextResponse } from "next/server";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { createClient } from "@/lib/supabase/server";
-import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
+import { createClient } from '@/lib/supabase/server';
+import {
+  hasOperationalAccess,
+  isSubscriptionStatus,
+  type AccountSubscription,
+} from '@/lib/billing/access';
+import { hasMinRole, isAccountRole, type AccountRole } from './roles';
 
 // ------------------------------------------------------------
 // Errors
@@ -40,17 +45,25 @@ import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
 
 export class UnauthorizedError extends Error {
   readonly status = 401 as const;
-  constructor(message = "Unauthorized") {
+  constructor(message = 'Unauthorized') {
     super(message);
-    this.name = "UnauthorizedError";
+    this.name = 'UnauthorizedError';
   }
 }
 
 export class ForbiddenError extends Error {
   readonly status = 403 as const;
-  constructor(message = "Forbidden") {
+  constructor(message = 'Forbidden') {
     super(message);
-    this.name = "ForbiddenError";
+    this.name = 'ForbiddenError';
+  }
+}
+
+export class AccountInactiveError extends Error {
+  readonly status = 402 as const;
+  constructor(message = 'Account subscription is not active') {
+    super(message);
+    this.name = 'AccountInactiveError';
   }
 }
 
@@ -67,11 +80,15 @@ export class ForbiddenError extends Error {
  * server internals out of the wire.
  */
 export function toErrorResponse(err: unknown): NextResponse {
-  if (err instanceof UnauthorizedError || err instanceof ForbiddenError) {
+  if (
+    err instanceof UnauthorizedError ||
+    err instanceof ForbiddenError ||
+    err instanceof AccountInactiveError
+  ) {
     return NextResponse.json({ error: err.message }, { status: err.status });
   }
-  console.error("[toErrorResponse] uncategorized error:", err);
-  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  console.error('[toErrorResponse] uncategorized error:', err);
+  return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
 }
 
 // ------------------------------------------------------------
@@ -88,7 +105,13 @@ export interface AccountContext {
   /** Caller's role within their account. */
   role: AccountRole;
   /** Lightweight account meta — id + name. */
-  account: { id: string; name: string };
+  account: AccountSubscription;
+  /** False only for newly-created companies that still need setup. */
+  onboardingCompleted: boolean;
+}
+
+interface CurrentAccountOptions {
+  allowInactive?: boolean;
 }
 
 /**
@@ -103,7 +126,9 @@ export interface AccountContext {
  * Use `requireRole(min)` instead when the route also needs a
  * minimum-role check — it's a thin wrapper over this.
  */
-export async function getCurrentAccount(): Promise<AccountContext> {
+export async function getCurrentAccount(
+  options: CurrentAccountOptions = {}
+): Promise<AccountContext> {
   const supabase = await createClient();
 
   const {
@@ -115,20 +140,20 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   }
 
   const { data, error } = await supabase
-    .from("profiles")
-    .select("account_id, account_role")
-    .eq("user_id", user.id)
+    .from('profiles')
+    .select('account_id, account_role')
+    .eq('user_id', user.id)
     .maybeSingle();
 
   if (error) {
-    console.error("[getCurrentAccount] profile fetch error:", error);
-    throw new ForbiddenError("Could not load account context");
+    console.error('[getCurrentAccount] profile fetch error:', error);
+    throw new ForbiddenError('Could not load account context');
   }
   if (!data || !data.account_id || !data.account_role) {
     // Pre-migration profile, or a manual insert that skipped the
     // signup trigger. The user is authenticated but the app has
     // no way to scope their queries — treat as forbidden.
-    throw new ForbiddenError("Profile is not linked to an account");
+    throw new ForbiddenError('Profile is not linked to an account');
   }
   if (!isAccountRole(data.account_role)) {
     // The DB enum should make this impossible, but a future
@@ -148,19 +173,39 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   // id needs no relationship inference and is gated by the same accounts
   // RLS, so it stays robust against cache staleness and older schemas.
   const { data: account, error: accountErr } = await supabase
-    .from("accounts")
-    .select("id, name")
-    .eq("id", data.account_id)
+    .from('accounts')
+    .select(
+      'id, name, plan_code, subscription_status, trial_ends_at, grace_ends_at, current_period_ends_at, suspended_at, suspension_reason, onboarding_completed'
+    )
+    .eq('id', data.account_id)
     .maybeSingle();
 
   if (accountErr) {
-    console.error("[getCurrentAccount] account fetch error:", accountErr);
-    throw new ForbiddenError("Could not load account context");
+    console.error('[getCurrentAccount] account fetch error:', accountErr);
+    throw new ForbiddenError('Could not load account context');
   }
   if (!account) {
     // account_id points at no readable account row — orphaned profile
     // or an RLS gap. Same "can't scope this user" outcome as above.
-    throw new ForbiddenError("Profile is not linked to an account");
+    throw new ForbiddenError('Profile is not linked to an account');
+  }
+
+  const accountSubscription: AccountSubscription = {
+    id: account.id,
+    name: account.name,
+    plan_code: account.plan_code ?? 'professional',
+    subscription_status: isSubscriptionStatus(account.subscription_status)
+      ? account.subscription_status
+      : 'active',
+    trial_ends_at: account.trial_ends_at ?? null,
+    grace_ends_at: account.grace_ends_at ?? null,
+    current_period_ends_at: account.current_period_ends_at ?? null,
+    suspended_at: account.suspended_at ?? null,
+    suspension_reason: account.suspension_reason ?? null,
+  };
+
+  if (!options.allowInactive && !hasOperationalAccess(accountSubscription)) {
+    throw new AccountInactiveError();
   }
 
   return {
@@ -168,7 +213,10 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     userId: user.id,
     accountId: data.account_id,
     role: data.account_role,
-    account: { id: account.id, name: account.name },
+    account: accountSubscription,
+    // Defensive true preserves access while code and migration are deployed
+    // across different instances; the DB is authoritative once the column exists.
+    onboardingCompleted: account.onboarding_completed !== false,
   };
 }
 
@@ -183,7 +231,7 @@ export async function requireRole(min: AccountRole): Promise<AccountContext> {
   const ctx = await getCurrentAccount();
   if (!hasMinRole(ctx.role, min)) {
     throw new ForbiddenError(
-      `This action requires the '${min}' role or higher`,
+      `This action requires the '${min}' role or higher`
     );
   }
   return ctx;

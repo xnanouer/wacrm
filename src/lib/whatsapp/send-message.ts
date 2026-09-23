@@ -35,8 +35,11 @@ import {
   phoneVariants,
   isRecipientNotAllowedError,
 } from '@/lib/whatsapp/phone-utils';
-import type { MessageTemplate } from '@/types';
+import type { MessageStatus, MessageTemplate } from '@/types';
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
+import { sendWhatsAppWebMessage } from '@/lib/whatsapp/web-service';
+import { whatsappWebAckToStatus } from '@/lib/whatsapp/message-status';
+import { prepareOutboundMediaUrl } from '@/lib/storage/private-media-server';
 
 export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
 export const VALID_MESSAGE_TYPES = [
@@ -74,6 +77,10 @@ export interface SendMessageParams {
   /** Structured template params (header/body/buttons). */
   templateMessageParams?: unknown;
   replyToMessageId?: string | null;
+  /** Persist the real sender identity. Automated responders use `bot`. */
+  senderType?: 'agent' | 'bot';
+  /** Human sends pause active Flows; automated sends do not. */
+  pauseFlows?: boolean;
 }
 
 export interface SendMessageResult {
@@ -175,6 +182,8 @@ export async function sendMessageToConversation(
     templateParams,
     templateMessageParams,
     replyToMessageId,
+    senderType = 'agent',
+    pauseFlows = true,
   } = params;
 
   if (!conversationId) {
@@ -225,14 +234,23 @@ export async function sendMessageToConversation(
   }
 
   // WhatsApp config, account-scoped.
-  let configQuery = db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId);
-  if (conversation.whatsapp_config_id) {
-    configQuery = configQuery.eq('id', conversation.whatsapp_config_id);
-  }
-  const { data: config, error: configError } = await configQuery.single();
+  const configResult = conversation.whatsapp_config_id
+    ? await db
+        .from('whatsapp_config')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('id', conversation.whatsapp_config_id)
+        .maybeSingle()
+    : await db
+        .from('whatsapp_config')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('status', 'connected')
+        .order('is_default', { ascending: false })
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+  const { data: config, error: configError } = configResult;
 
   if (configError || !config) {
     throw new SendMessageError(
@@ -242,22 +260,33 @@ export async function sendMessageToConversation(
     );
   }
 
-  const accessToken = decrypt(config.access_token);
+  const provider = config.provider ?? 'cloud_api';
+  let accessToken: string | null = null;
+  if (provider === 'cloud_api') {
+    if (!config.access_token || !config.phone_number_id) {
+      throw new SendMessageError(
+        'whatsapp_not_configured',
+        'Meta Cloud API credentials are incomplete.',
+        400
+      );
+    }
+    accessToken = decrypt(config.access_token);
 
-  // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
-  if (isLegacyFormat(config.access_token)) {
-    void db
-      .from('whatsapp_config')
-      .update({ access_token: encrypt(accessToken) })
-      .eq('id', config.id)
-      .then(({ error }: { error: { message: string } | null }) => {
-        if (error) {
-          console.warn(
-            '[send-message] access_token GCM upgrade failed:',
-            error.message
-          );
-        }
-      });
+    // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
+    if (isLegacyFormat(config.access_token)) {
+      void db
+        .from('whatsapp_config')
+        .update({ access_token: encrypt(accessToken) })
+        .eq('id', config.id)
+        .then(({ error }: { error: { message: string } | null }) => {
+          if (error) {
+            console.warn(
+              '[send-message] access_token GCM upgrade failed:',
+              error.message
+            );
+          }
+        });
+    }
   }
 
   // Resolve the reply target to its Meta message_id. The parent must
@@ -291,7 +320,7 @@ export async function sendMessageToConversation(
   // Template row (for header + button components). isMessageTemplate
   // guards against a malformed local row crashing the send-builder.
   let templateRow: MessageTemplate | null = null;
-  if (messageType === 'template' && templateName) {
+  if (provider === 'cloud_api' && messageType === 'template' && templateName) {
     const { data } = await db
       .from('message_templates')
       .select('*')
@@ -309,11 +338,26 @@ export async function sendMessageToConversation(
     templateRow = data ?? null;
   }
 
+  const deliveryMediaUrl =
+    isMediaKind && mediaUrl
+      ? await prepareOutboundMediaUrl(db, accountId, mediaUrl)
+      : null;
+  if (templateRow?.header_media_url) {
+    templateRow = {
+      ...templateRow,
+      header_media_url: await prepareOutboundMediaUrl(
+        db,
+        accountId,
+        templateRow.header_media_url
+      ),
+    };
+  }
+
   const attempt = async (phone: string): Promise<string> => {
     if (messageType === 'template') {
       const result = await sendTemplateMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+        phoneNumberId: config.phone_number_id!,
+        accessToken: accessToken!,
         to: phone,
         templateName: templateName!,
         language: templateLanguage || 'en_US',
@@ -326,11 +370,11 @@ export async function sendMessageToConversation(
     }
     if (isMediaKind) {
       const result = await sendMediaMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+        phoneNumberId: config.phone_number_id!,
+        accessToken: accessToken!,
         to: phone,
         kind: messageType as MediaKind,
-        link: mediaUrl!,
+        link: deliveryMediaUrl!,
         caption: contentText || undefined,
         filename: filename || undefined,
         contextMessageId,
@@ -338,8 +382,8 @@ export async function sendMessageToConversation(
       return result.messageId;
     }
     const result = await sendTextMessage({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
+      phoneNumberId: config.phone_number_id!,
+      accessToken: accessToken!,
       to: phone,
       text: contentText!,
       contextMessageId,
@@ -351,36 +395,76 @@ export async function sendMessageToConversation(
   // with "recipient not in allowed list"; persist a working variant
   // back to the contact so the next send goes straight through.
   let waMessageId = '';
+  let initialMessageStatus: MessageStatus = 'sent';
   let workingPhone = sanitizedPhone;
-  try {
-    const variants = phoneVariants(sanitizedPhone);
-    let lastError: unknown = null;
-
-    for (const variant of variants) {
-      try {
-        waMessageId = await attempt(variant);
-        workingPhone = variant;
-        lastError = null;
-        break;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (!isRecipientNotAllowedError(message)) {
-          throw err;
-        }
-        lastError = err;
-        console.warn(
-          `[send-message] variant "${variant}" rejected by Meta, trying next…`
-        );
-      }
+  if (provider === 'whatsapp_web') {
+    if (messageType === 'template') {
+      throw new SendMessageError(
+        'unsupported_transport',
+        'Las plantillas aprobadas pertenecen a Meta Cloud API y no se usan en la conexión QR.',
+        400
+      );
     }
+    try {
+      const result = await sendWhatsAppWebMessage({
+        accountId,
+        connectionId: config.id,
+        to: sanitizedPhone,
+        messageType,
+        text: contentText,
+        mediaUrl: deliveryMediaUrl,
+        filename,
+        quotedMessageId: contextMessageId,
+        participantJid: conversation.external_participant_id,
+      });
+      waMessageId = result.messageId;
+      initialMessageStatus =
+        whatsappWebAckToStatus(result.ack ?? 1) ?? initialMessageStatus;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new SendMessageError(
+        'whatsapp_transport_error',
+        `No se pudo enviar por WhatsApp QR: ${message}`,
+        502
+      );
+    }
+  } else
+    try {
+      const variants = phoneVariants(sanitizedPhone);
+      let lastError: unknown = null;
 
-    if (lastError) throw lastError;
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
-  }
+      for (const variant of variants) {
+        try {
+          waMessageId = await attempt(variant);
+          workingPhone = variant;
+          lastError = null;
+          break;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!isRecipientNotAllowedError(message)) {
+            throw err;
+          }
+          lastError = err;
+          console.warn(
+            `[send-message] variant "${variant}" rejected by Meta, trying next…`
+          );
+        }
+      }
+
+      if (lastError) throw lastError;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unknown Meta API error';
+      console.error(
+        '[send-message] Meta send failed for all variants:',
+        message
+      );
+      throw new SendMessageError(
+        'meta_error',
+        `Meta API error: ${message}`,
+        502
+      );
+    }
 
   if (workingPhone !== sanitizedPhone) {
     console.log(
@@ -394,27 +478,51 @@ export async function sendMessageToConversation(
 
   // Persist the sent message. Field names MUST match the messages
   // schema (see 001_initial_schema.sql).
-  const { data: messageRecord, error: msgError } = await db
+  const { data: insertedMessageRecord, error: msgError } = await db
     .from('messages')
     .insert({
       conversation_id: conversationId,
-      sender_type: 'agent',
+      sender_type: senderType,
       content_type: messageType,
       content_text: contentText || null,
       media_url: mediaUrl || null,
       template_name: templateName || null,
       message_id: waMessageId,
-      status: 'sent',
+      status: initialMessageStatus,
       reply_to_message_id: replyToMessageId || null,
     })
     .select()
     .single();
 
-  if (msgError) {
+  let messageRecord = insertedMessageRecord;
+  if (msgError?.code === '23505' && waMessageId) {
+    // The linked-device event can persist an outbound QR message before this
+    // request resumes. Reuse that row instead of reporting a false failure
+    // after WhatsApp already accepted the message.
+    const { data: existingMessage, error: existingError } = await db
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('message_id', waMessageId)
+      .maybeSingle();
+    if (!existingError && existingMessage) {
+      messageRecord = existingMessage;
+    }
+  }
+
+  if (msgError && !messageRecord) {
     console.error('[send-message] error inserting sent message:', msgError);
     throw new SendMessageError(
       'db_error',
       `Message sent to Meta but failed to save to DB: ${msgError.message}`,
+      500
+    );
+  }
+
+  if (!messageRecord) {
+    throw new SendMessageError(
+      'db_error',
+      'Message sent to WhatsApp but its local record could not be recovered.',
       500
     );
   }
@@ -430,27 +538,58 @@ export async function sendMessageToConversation(
     })
     .eq('id', conversationId);
 
+  // A real human message is an immediate takeover signal. This preserves the
+  // assignee but stops both manual and after-hours AI coverage, preventing a
+  // delayed inbound job from replying alongside the executive.
+  if (
+    senderType === 'agent' &&
+    ['ai_active', 'ai_after_hours', 'waiting_for_human'].includes(
+      conversation.ai_state
+    )
+  ) {
+    const takeoverAt = new Date().toISOString();
+    const { error: takeoverError } = await db
+      .from('conversations')
+      .update({
+        ai_state: 'human_active',
+        ai_autoreply_disabled: true,
+        ai_pause_reason: 'human_message',
+        ai_paused_at: takeoverAt,
+        last_human_takeover_at: takeoverAt,
+        human_takeover_by: conversation.assigned_agent_id ?? null,
+        manual_ai_activated_at: null,
+        manual_ai_activated_by: null,
+      })
+      .eq('id', conversationId)
+      .eq('account_id', accountId);
+    if (takeoverError) {
+      console.error('[ai coverage] pause-on-human-send failed:', takeoverError);
+    }
+  }
+
   // Pause any active Flow run for this contact — the agent stepping in
   // is the strongest "yield, human is here" signal. Best-effort.
-  try {
-    const { error: pauseErr } = await supabaseAdmin()
-      .from('flow_runs')
-      .update({
-        status: 'paused_by_agent',
-        ended_at: new Date().toISOString(),
-        end_reason: 'agent_replied',
-      })
-      .eq('account_id', accountId)
-      .eq('contact_id', contact.id)
-      .eq('status', 'active');
-    if (pauseErr) {
-      console.error('[flows] pause-on-agent-send failed:', pauseErr.message);
+  if (pauseFlows) {
+    try {
+      const { error: pauseErr } = await supabaseAdmin()
+        .from('flow_runs')
+        .update({
+          status: 'paused_by_agent',
+          ended_at: new Date().toISOString(),
+          end_reason: 'agent_replied',
+        })
+        .eq('account_id', accountId)
+        .eq('contact_id', contact.id)
+        .eq('status', 'active');
+      if (pauseErr) {
+        console.error('[flows] pause-on-agent-send failed:', pauseErr.message);
+      }
+    } catch (err) {
+      console.error(
+        '[flows] pause-on-agent-send threw:',
+        err instanceof Error ? err.message : err
+      );
     }
-  } catch (err) {
-    console.error(
-      '[flows] pause-on-agent-send threw:',
-      err instanceof Error ? err.message : err
-    );
   }
 
   return { messageId: messageRecord.id, whatsappMessageId: waMessageId };

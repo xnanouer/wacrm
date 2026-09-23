@@ -23,6 +23,20 @@
 # local database backups (may contain customer data)
 /.local-backups/
 
+# local development/runtime artifacts
+/.codex-runtime/
+/.logs/
+/runtime-logs/
+/tmp/
+/CODEX_SECURITY_REPORT.md
+/.nexora-dev*.log
+/nexora-dev*.log
+
+# WhatsApp Web linked-device credentials (equivalent to a login session)
+/.wwebjs_auth/
+/.wwebjs_cache/
+/.runtime/
+
 # misc
 .DS_Store
 *.pem

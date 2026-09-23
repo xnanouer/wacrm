@@ -17,7 +17,7 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 
-const MIN_PASSWORD = 8;
+const MIN_PASSWORD = 10;
 
 export function PasswordForm() {
   const { profile } = useAuth();
@@ -37,6 +37,12 @@ export function PasswordForm() {
     }
     if (next.length < MIN_PASSWORD) {
       setConfirmError(`Password must be at least ${MIN_PASSWORD} characters`);
+      return;
+    }
+    if (!/[A-Za-z]/.test(next) || !/\d/.test(next)) {
+      setConfirmError(
+        'Password must include at least one letter and one number'
+      );
       return;
     }
     if (next !== confirm) {
@@ -83,13 +89,13 @@ export function PasswordForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-foreground">
-          <KeyRound className="size-4 text-primary" />
+        <CardTitle className="text-foreground flex items-center gap-2">
+          <KeyRound className="text-primary size-4" />
           Password
         </CardTitle>
         <CardDescription className="text-muted-foreground">
-          Use at least {MIN_PASSWORD} characters. You will stay signed in on
-          this device after changing it.
+          Use at least {MIN_PASSWORD} characters, including a letter and a
+          number. You will stay signed in on this device after changing it.
         </CardDescription>
       </CardHeader>
 
@@ -144,7 +150,7 @@ export function PasswordForm() {
           </div>
 
           {confirmError && (
-            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <p className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
               {confirmError}
             </p>
           )}

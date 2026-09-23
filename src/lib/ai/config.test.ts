@@ -1,12 +1,41 @@
-import { describe, it, expect, vi } from 'vitest'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { describe, expect, it, vi } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-// decrypt is identity in tests so we don't depend on real ciphertext.
+vi.mock('server-only', () => ({}));
+
+const h = vi.hoisted(() => ({
+  settings: {
+    text_provider: 'openai',
+    text_model: 'gpt-managed',
+    encrypted_api_key: 'enc-platform-key',
+    global_enabled: true,
+    audio_enabled: false,
+  } as Record<string, unknown> | null,
+  entitlement: { platform_enabled: true } as Record<string, unknown> | null,
+}));
+
 vi.mock('@/lib/whatsapp/encryption', () => ({
-  decrypt: (v: string) => `plain:${v}`,
-}))
+  decrypt: (value: string) => `plain:${value}`,
+}));
 
-import { loadAiConfig } from './config'
+vi.mock('./admin-client', () => ({
+  supabaseAdmin: () => ({
+    from: (table: string) => {
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        maybeSingle: () =>
+          Promise.resolve({
+            data: table === 'platform_ai_settings' ? h.settings : h.entitlement,
+            error: null,
+          }),
+      };
+      return chain;
+    },
+  }),
+}));
+
+import { loadAiConfig } from './config';
 
 function dbReturning(row: Record<string, unknown> | null): SupabaseClient {
   const chain = {
@@ -14,38 +43,55 @@ function dbReturning(row: Record<string, unknown> | null): SupabaseClient {
     select: () => chain,
     eq: () => chain,
     maybeSingle: () => Promise.resolve({ data: row, error: null }),
-  }
-  return chain as unknown as SupabaseClient
+  };
+  return chain as unknown as SupabaseClient;
 }
 
 const ROW = {
-  provider: 'openai',
-  model: 'gpt-x',
-  api_key: 'enc-key',
+  id: 'config-1',
   system_prompt: null,
   is_active: false,
   auto_reply_enabled: false,
   auto_reply_max_per_conversation: 3,
-  embeddings_api_key: null,
-}
+  catalog_ai_enabled: false,
+  catalog_ai_auto_send: true,
+  catalog_ai_max_items: 3,
+  response_mode: 'text',
+};
 
-describe('loadAiConfig requireActive', () => {
+describe('loadAiConfig managed mode', () => {
   it('returns null for an inactive config by default', async () => {
-    expect(await loadAiConfig(dbReturning(ROW), 'acct')).toBeNull()
-  })
+    expect(await loadAiConfig(dbReturning(ROW), 'acct')).toBeNull();
+  });
 
-  it('returns the config when requireActive is false (Playground path)', async () => {
+  it('combines tenant behavior with platform credentials', async () => {
     const config = await loadAiConfig(dbReturning(ROW), 'acct', {
       requireActive: false,
-    })
-    expect(config).not.toBeNull()
-    expect(config!.provider).toBe('openai')
-    expect(config!.apiKey).toBe('plain:enc-key')
-  })
+    });
+    expect(config).toMatchObject({
+      id: 'config-1',
+      provider: 'openai',
+      model: 'gpt-managed',
+      apiKey: 'plain:enc-platform-key',
+      responseMode: 'text',
+      catalogAiEnabled: false,
+      catalogAiAutoSend: true,
+      catalogAiMaxItems: 3,
+      embeddingsApiKey: null,
+    });
+  });
 
-  it('returns null when there is no row', async () => {
+  it('returns null when Nexora disabled the company', async () => {
+    h.entitlement = { platform_enabled: false };
     expect(
-      await loadAiConfig(dbReturning(null), 'acct', { requireActive: false }),
-    ).toBeNull()
-  })
-})
+      await loadAiConfig(dbReturning(ROW), 'acct', { requireActive: false })
+    ).toBeNull();
+    h.entitlement = { platform_enabled: true };
+  });
+
+  it('returns null when there is no tenant brain', async () => {
+    expect(
+      await loadAiConfig(dbReturning(null), 'acct', { requireActive: false })
+    ).toBeNull();
+  });
+});

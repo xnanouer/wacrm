@@ -4,29 +4,38 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { BrandLockup } from '@/components/brand/brand-mark';
 import { useAuth } from '@/hooks/use-auth';
-import { useTotalUnread } from '@/hooks/use-total-unread';
 import { useUnreadNotifications } from '@/hooks/use-unread-notifications';
 import {
   Bell,
   Bot,
+  BrainCircuit,
+  CarFront,
+  Building2,
   Crown,
   GitBranch,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   MessageSquare,
+  LifeBuoy,
   Radio,
+  ReceiptText,
+  FileSignature,
   Settings,
   Shield,
   User,
   UserCog,
   Users,
   UsersRound,
+  WalletCards,
   Workflow,
   X,
   Zap,
 } from 'lucide-react';
-import type { AccountRole } from '@/lib/auth/roles';
+import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
+import { homePathForRole } from '@/lib/auth/route-access';
 
 // Per-role chip metadata used in the sidebar's account strip + the
 // Members tab roster. Keeping this near both consumers in a single
@@ -37,15 +46,13 @@ const ROLE_CHIP: Record<
   { icon: typeof Crown; label: string; className: string }
 > = {
   owner: {
-    icon: Crown,
-    label: 'Owner',
-    // Amber: scarce, immutable, "the boss" — gets visual emphasis.
-    className: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    icon: Shield,
+    label: 'Administrador',
+    className: 'border-primary/40 bg-primary/10 text-primary',
   },
   admin: {
     icon: Shield,
-    label: 'Admin',
-    // Primary-tinted: significant but not as scarce as owner.
+    label: 'Administrador',
     className: 'border-primary/40 bg-primary/10 text-primary',
   },
   supervisor: {
@@ -55,18 +62,19 @@ const ROLE_CHIP: Record<
   },
   agent: {
     icon: UserCog,
-    label: 'Agent',
+    label: 'Agente',
     // Neutral slate: the operational default.
     className: 'border-border bg-muted text-foreground',
   },
   viewer: {
     icon: User,
-    label: 'Viewer',
+    label: 'Visor',
     // Muted slate: read-only role; visually quieter than agent.
     className: 'border-border bg-card text-muted-foreground',
   },
 };
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,34 +92,101 @@ interface NavItem {
    * Purely informational — doesn't affect routing or access.
    */
   beta?: boolean;
+  /** Visible roadmap item without a route or click behaviour. */
+  comingSoon?: boolean;
+  minRole?: AccountRole;
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/inbox', label: 'Inbox', icon: MessageSquare },
-  { href: '/notifications', label: 'Notifications', icon: Bell },
-  { href: '/contacts', label: 'Contacts', icon: Users },
-  { href: '/pipelines', label: 'Pipelines', icon: GitBranch },
-  { href: '/broadcasts', label: 'Broadcasts', icon: Radio },
-  { href: '/automations', label: 'Automations', icon: Zap },
-  { href: '/flows', label: 'Flows', icon: Workflow, beta: true },
-  { href: '/agents', label: 'AI Agents', icon: Bot },
+  {
+    href: '/dashboard',
+    label: 'Resumen',
+    icon: LayoutDashboard,
+    minRole: 'admin',
+  },
+  { href: '/inbox', label: 'Bandeja', icon: MessageSquare },
+  { href: '/notifications', label: 'Notificaciones', icon: Bell },
+  { href: '/contacts', label: 'Contactos', icon: Users, minRole: 'admin' },
+  { href: '/catalogo', label: 'Catálogo', icon: CarFront, minRole: 'agent' },
+  {
+    href: '/quotes',
+    label: 'Cotizaciones',
+    icon: ReceiptText,
+    minRole: 'agent',
+  },
+  {
+    href: '/contracts',
+    label: 'Contratos',
+    icon: FileSignature,
+    minRole: 'agent',
+  },
+  {
+    href: '/pipelines',
+    label: 'Oportunidades',
+    icon: GitBranch,
+    minRole: 'admin',
+  },
+  { href: '/broadcasts', label: 'Campañas', icon: Radio, minRole: 'admin' },
+  {
+    href: '/marketing',
+    label: 'Nexora Marketing',
+    icon: Megaphone,
+    comingSoon: true,
+  },
+  {
+    href: '/automations',
+    label: 'Automatizaciones',
+    icon: Zap,
+    minRole: 'admin',
+  },
+  {
+    href: '/flows',
+    label: 'Flujos',
+    icon: Workflow,
+    beta: true,
+    minRole: 'admin',
+  },
+  { href: '/agents', label: 'Agentes IA', icon: Bot, minRole: 'admin' },
+  { href: '/coach', label: 'Coach IA', icon: BrainCircuit, minRole: 'agent' },
 ];
 
-const bottomNavItems = [
-  { href: '/settings', label: 'Settings', icon: Settings },
+const bottomNavItems: NavItem[] = [
+  {
+    href: '/support',
+    label: 'Ayuda y soporte',
+    icon: LifeBuoy,
+  },
+  {
+    href: '/plans',
+    label: 'Planes y pagos',
+    icon: WalletCards,
+    minRole: 'admin',
+  },
+  { href: '/settings', label: 'Configuración', icon: Settings },
 ];
 
 interface SidebarProps {
   /** Controlled on mobile by the Header's hamburger button. Ignored on lg+. */
   open?: boolean;
   onClose?: () => void;
+  /** Total unread inbox messages, shared with the browser-tab badge. */
+  totalUnread?: number;
 }
 
-export function Sidebar({ open = false, onClose }: SidebarProps) {
+export function Sidebar({
+  open = false,
+  onClose,
+  totalUnread = 0,
+}: SidebarProps) {
   const pathname = usePathname();
-  const { profile, profileLoading, account, accountRole, signOut } = useAuth();
-  const totalUnread = useTotalUnread();
+  const {
+    profile,
+    profileLoading,
+    account,
+    accountRole,
+    platformRole,
+    signOut,
+  } = useAuth();
   const unreadNotifications = useUnreadNotifications();
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
@@ -168,24 +243,22 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <aside
         className={cn(
           // Mobile: fixed drawer that slides in from the left.
-          'border-border bg-card fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r',
+          'border-sidebar-border/70 bg-sidebar/94 fixed inset-y-0 left-0 z-40 flex h-full w-[304px] flex-col border-r shadow-2xl shadow-black/20 backdrop-blur-2xl',
           'transition-transform duration-200 ease-out will-change-transform',
           open ? 'translate-x-0' : '-translate-x-full',
           // Desktop: static, always visible — reset all the mobile framing.
-          'lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none'
+          'lg:static lg:z-0 lg:w-[304px] lg:translate-x-0 lg:shadow-none lg:transition-none'
         )}
         aria-label="Primary"
       >
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
-        <div className="border-border flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="bg-primary text-primary-foreground flex h-8 w-8 items-center justify-center rounded-lg">
-              <MessageSquare className="h-4 w-4" />
-            </div>
-            <span className="text-foreground text-sm font-semibold">
-              CRM Template for WhatsApp
-            </span>
+        <div className="flex h-[104px] shrink-0 items-center justify-between gap-2 px-7">
+          <Link
+            href={homePathForRole(accountRole)}
+            className="focus-visible:ring-primary rounded-xl outline-none focus-visible:ring-2"
+          >
+            <BrandLockup />
           </Link>
           <button
             type="button"
@@ -198,95 +271,164 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         </div>
 
         {/* Main navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== '/dashboard' && pathname.startsWith(item.href));
+        <ScrollArea className="min-h-0 flex-1">
+          <nav className="px-4 py-5">
+            <p className="text-muted-foreground/70 mb-3 px-3.5 text-xs font-bold tracking-[0.16em] uppercase">
+              Espacio de trabajo
+            </p>
+            <ul className="flex flex-col gap-2">
+              {navItems
+                .filter(
+                  (item) =>
+                    !item.minRole ||
+                    (!!accountRole && hasMinRole(accountRole, item.minRole))
+                )
+                .map((item) => {
+                  if (item.comingSoon) {
+                    return (
+                      <li key={item.href}>
+                        <div
+                          aria-disabled="true"
+                          title="Nexora Marketing estará disponible muy pronto"
+                          className="text-muted-foreground/65 flex min-h-12 cursor-not-allowed items-center gap-3.5 rounded-2xl px-4 py-3 text-base font-medium select-none"
+                        >
+                          <item.icon className="size-5" />
+                          <span className="flex-1">{item.label}</span>
+                          <span className="border-primary/30 bg-primary/10 text-primary rounded-full border px-2 py-1 text-[10px] font-semibold tracking-wide whitespace-nowrap uppercase">
+                            Muy pronto
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  }
 
-              const showUnreadDot =
-                item.href === '/inbox' && totalUnread > 0 && !isActive;
+                  const isActive =
+                    pathname === item.href ||
+                    (item.href !== '/dashboard' &&
+                      pathname.startsWith(item.href));
 
-              // Unlike the inbox dot, the notifications count stays visible
-              // even while the page is active — it reflects unread state
-              // (cleared by marking notifications read), not "currently
-              // viewing this section".
-              const showNotificationBadge =
-                item.href === '/notifications' && unreadNotifications > 0;
+                  const showUnreadDot =
+                    item.href === '/inbox' && totalUnread > 0 && !isActive;
 
-              return (
-                <li key={item.href}>
+                  // Unlike the inbox dot, the notifications count stays visible
+                  // even while the page is active — it reflects unread state
+                  // (cleared by marking notifications read), not "currently
+                  // viewing this section".
+                  const showNotificationBadge =
+                    item.href === '/notifications' && unreadNotifications > 0;
+
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={cn(
+                          // Taller on mobile so fingers can hit the row reliably (≥44px).
+                          'group relative flex min-h-12 items-center gap-3.5 overflow-hidden rounded-2xl px-4 py-3 text-base font-medium transition-all duration-200',
+                          isActive
+                            ? 'bg-primary/12 text-primary shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--primary)_18%,transparent)]'
+                            : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                        )}
+                      >
+                        {isActive && (
+                          <span className="bg-primary absolute inset-y-2 left-0 w-0.5 rounded-full shadow-[0_0_12px_var(--primary)]" />
+                        )}
+                        <item.icon
+                          className={cn(
+                            'size-5 transition-transform duration-200 group-hover:scale-105',
+                            isActive && 'stroke-[2.4]'
+                          )}
+                        />
+                        <span className="flex-1">{item.label}</span>
+                        {item.beta && (
+                          <span
+                            aria-label="Beta feature"
+                            className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold tracking-wider text-amber-300 uppercase"
+                          >
+                            Beta
+                          </span>
+                        )}
+                        {showUnreadDot && (
+                          <span
+                            aria-label={`${totalUnread} unread conversation${totalUnread === 1 ? '' : 's'}`}
+                            className="relative flex h-2 w-2"
+                          >
+                            <span className="bg-primary absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" />
+                            <span className="bg-primary relative inline-flex h-2 w-2 rounded-full" />
+                          </span>
+                        )}
+                        {showNotificationBadge && (
+                          <span
+                            aria-label={`${unreadNotifications} unread notification${unreadNotifications === 1 ? '' : 's'}`}
+                            className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-semibold"
+                          >
+                            {unreadNotifications > 9
+                              ? '9+'
+                              : unreadNotifications}
+                          </span>
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+            </ul>
+
+            <div className="border-sidebar-border my-4 border-t" />
+
+            <p className="text-muted-foreground/70 mb-2.5 px-3 text-[11px] font-bold tracking-[0.16em] uppercase">
+              Administración
+            </p>
+
+            <ul className="flex flex-col gap-1.5">
+              {platformRole && (
+                <li>
                   <Link
-                    href={item.href}
+                    href="/platform"
                     className={cn(
-                      // Taller on mobile so fingers can hit the row reliably (≥44px).
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
-                      isActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                      'group relative flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-[15px] font-medium transition-all duration-200',
+                      pathname.startsWith('/platform')
+                        ? 'bg-primary/12 text-primary shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--primary)_18%,transparent)]'
+                        : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
                     )}
                   >
-                    <item.icon className="h-4 w-4" />
-                    <span className="flex-1">{item.label}</span>
-                    {item.beta && (
-                      <span
-                        aria-label="Beta feature"
-                        className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-amber-300 uppercase"
-                      >
-                        Beta
-                      </span>
-                    )}
-                    {showUnreadDot && (
-                      <span
-                        aria-label={`${totalUnread} unread conversation${totalUnread === 1 ? '' : 's'}`}
-                        className="relative flex h-2 w-2"
-                      >
-                        <span className="bg-primary absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" />
-                        <span className="bg-primary relative inline-flex h-2 w-2 rounded-full" />
-                      </span>
-                    )}
-                    {showNotificationBadge && (
-                      <span
-                        aria-label={`${unreadNotifications} unread notification${unreadNotifications === 1 ? '' : 's'}`}
-                        className="bg-primary text-primary-foreground flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
-                      >
-                        {unreadNotifications > 9 ? '9+' : unreadNotifications}
-                      </span>
-                    )}
+                    <Building2 className="size-[18px]" />
+                    Plataforma Nexora
                   </Link>
                 </li>
-              );
-            })}
-          </ul>
-
-          <div className="border-border my-4 border-t" />
-
-          <ul className="flex flex-col gap-1">
-            {bottomNavItems.map((item) => {
-              const isActive = pathname.startsWith(item.href);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2',
-                      isActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+              )}
+              {bottomNavItems
+                .filter(
+                  (item) =>
+                    !item.minRole ||
+                    (!!accountRole && hasMinRole(accountRole, item.minRole))
+                )
+                .map((item) => {
+                  const isActive = pathname.startsWith(item.href);
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={cn(
+                          'group relative flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-[15px] font-medium transition-all duration-200',
+                          isActive
+                            ? 'bg-primary/12 text-primary shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--primary)_18%,transparent)]'
+                            : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                        )}
+                      >
+                        {isActive && (
+                          <span className="bg-primary absolute inset-y-2 left-0 w-0.5 rounded-full" />
+                        )}
+                        <item.icon className="size-[18px]" />
+                        {item.label}
+                      </Link>
+                    </li>
+                  );
+                })}
+            </ul>
+          </nav>
+        </ScrollArea>
 
         {/* User section */}
-        <div className="border-border shrink-0 border-t p-3">
+        <div className="border-sidebar-border/80 bg-sidebar-accent/18 shrink-0 border-t p-3.5">
           {/* Account name display — surfaced only when the account
               name differs from the user's own name (see
               `showAccountStrip`). For a default solo account the two
@@ -294,7 +436,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               below; for renamed or shared accounts it tells the user
               which account they're acting in. */}
           {showAccountStrip && account?.name ? (
-            <div className="text-muted-foreground mb-2 flex items-center gap-2 px-3 text-xs">
+            <div className="text-muted-foreground mb-2.5 flex items-center gap-2 px-2 text-sm">
               <UsersRound className="size-3.5 shrink-0" />
               {/* `title=` exposes the full name on hover when it
                   gets truncated (long account names + narrow
@@ -312,7 +454,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     const Icon = meta.icon;
                     return (
                       <span
-                        className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wider uppercase ${meta.className}`}
+                        className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium tracking-wider uppercase ${meta.className}`}
                       >
                         <Icon className="size-3" />
                         {meta.label}
@@ -323,8 +465,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             </div>
           ) : null}
           <DropdownMenu>
-            <DropdownMenuTrigger className="hover:bg-muted/60 focus:bg-muted/60 data-popup-open:bg-muted/60 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors focus:outline-none">
-              <Avatar className="size-8 shrink-0">
+            <DropdownMenuTrigger className="surface-elevated hover:bg-sidebar-accent/70 focus:bg-sidebar-accent/70 data-popup-open:bg-sidebar-accent/70 flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-all focus:outline-none">
+              <Avatar className="ring-primary/15 size-10 shrink-0 ring-2">
                 {profile?.avatar_url ? (
                   <AvatarImage
                     src={profile.avatar_url}
@@ -338,13 +480,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
-                <p className="text-foreground truncate text-sm font-medium">
+                <p className="text-foreground truncate text-[15px] font-semibold">
                   {profile?.full_name ?? 'User'}
                 </p>
-                <p className="text-muted-foreground truncate text-xs">
+                <p className="text-muted-foreground mt-0.5 truncate text-xs">
                   {profile?.email ?? ''}
                 </p>
               </div>
+              <span className="size-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_0_3px_color-mix(in_oklab,var(--card)_85%,transparent),0_0_12px_rgba(52,211,153,0.45)]" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
@@ -367,7 +510,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               <DropdownMenuItem
                 render={
                   <Link
-                    href="/settings?tab=whatsapp"
+                    href={
+                      accountRole && hasMinRole(accountRole, 'admin')
+                        ? '/settings?tab=whatsapp'
+                        : '/settings?tab=profile'
+                    }
                     onClick={onClose}
                     className="text-popover-foreground focus:bg-accent focus:text-accent-foreground"
                   />

@@ -1,5 +1,4 @@
 import {
-  Crown,
   Shield,
   UsersRound,
   UserCog,
@@ -24,14 +23,14 @@ export const ROLE_META: Record<
   { icon: LucideIcon; label: string; variant: ChipVariant; className: string }
 > = {
   owner: {
-    icon: Crown,
-    label: 'Owner',
-    variant: 'owner',
-    className: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+    icon: Shield,
+    label: 'Administrador',
+    variant: 'admin',
+    className: 'border-primary/40 bg-primary/10 text-primary',
   },
   admin: {
     icon: Shield,
-    label: 'Admin',
+    label: 'Administrador',
     variant: 'admin',
     className: 'border-primary/40 bg-primary/10 text-primary',
   },
@@ -43,7 +42,7 @@ export const ROLE_META: Record<
   },
   agent: {
     icon: UserCog,
-    label: 'Agent',
+    label: 'Agente',
     variant: 'muted',
     className: 'border-border bg-muted text-muted-foreground',
   },

@@ -1,6 +1,13 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, KeyboardEvent } from 'react';
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  KeyboardEvent,
+} from 'react';
 import {
   Send,
   LayoutTemplate,
@@ -13,6 +20,7 @@ import {
   X,
   Loader2,
   Sparkles,
+  CarFront,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { GatedButton } from '@/components/ui/gated-button';
@@ -30,7 +38,14 @@ import {
   deleteAccountMedia,
   MEDIA_MAX_BYTES_BY_KIND,
 } from '@/lib/storage/upload-media';
+import {
+  CHAT_ATTACHMENT_ACCEPT,
+  classifyChatAttachment,
+} from '@/lib/storage/chat-attachment';
 import { ReplyQuote } from './reply-quote';
+import type { QuickReply } from '@/types';
+import { filterQuickReplies } from '@/lib/quick-replies/filter';
+import { VehicleSharePicker } from '@/components/catalog/vehicle-share-picker';
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = 'image' | 'video' | 'document' | 'audio';
@@ -65,17 +80,6 @@ interface ReplyDraft {
   preview: string;
 }
 
-// Mirrors the chat-media bucket's allowed_mime_types (migration 023) for
-// the file picker so unsupported files are rejected before upload rather
-// than failing with a confusing Storage error. Audio has no picker — it's
-// captured via the recorder.
-const PICKER_ACCEPT: Record<'image' | 'video' | 'document', string> = {
-  image: 'image/png,image/jpeg,image/webp',
-  video: 'video/mp4,video/3gpp',
-  document:
-    'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain',
-};
-
 interface MediaDraft {
   kind: ComposerMediaKind;
   mediaUrl: string;
@@ -87,6 +91,7 @@ interface MediaDraft {
 
 interface MessageComposerProps {
   conversationId: string;
+  departmentId?: string;
   sessionExpired: boolean;
   onSend: (text: string, replyToId?: string) => void;
   onSendMedia: (payload: SendMediaPayload) => void;
@@ -96,6 +101,10 @@ interface MessageComposerProps {
   insertDraft?: { id: string; text: string } | null;
   ticketLocked?: boolean;
   channelUnavailableReason?: string;
+  /** Social channels currently expose text replies only. */
+  textOnly?: boolean;
+  /** File dropped anywhere over the active conversation. */
+  droppedAttachment?: { id: string; file: File } | null;
 }
 
 function formatDuration(seconds: number): string {
@@ -111,6 +120,7 @@ const OPUS_ENCODER_PATH = '/opus/encoderWorker.min.js';
 
 export function MessageComposer({
   conversationId,
+  departmentId,
   sessionExpired,
   onSend,
   onSendMedia,
@@ -120,11 +130,44 @@ export function MessageComposer({
   insertDraft,
   ticketLocked = false,
   channelUnavailableReason,
+  textOnly = false,
+  droppedAttachment,
 }: MessageComposerProps) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  const [quickReplies, setQuickReplies] = useState<QuickReply[]>([]);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const query = departmentId
+      ? `?departmentId=${encodeURIComponent(departmentId)}`
+      : '';
+    fetch(`/api/quick-replies${query}`, { cache: 'no-store' })
+      .then(async (response) =>
+        response.ok
+          ? ((await response.json()) as { quickReplies?: QuickReply[] })
+          : { quickReplies: [] }
+      )
+      .then((payload) => {
+        if (!cancelled) setQuickReplies(payload.quickReplies ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setQuickReplies([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [departmentId]);
+
+  const slashMatches = useMemo(
+    () => (slashDismissed ? [] : filterQuickReplies(quickReplies, text)),
+    [quickReplies, slashDismissed, text]
+  );
 
   useEffect(() => {
     if (!insertDraft) return;
@@ -139,6 +182,7 @@ export function MessageComposer({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const handledDropIdRef = useRef<string | null>(null);
   // Mirror of `draft` for the unmount cleanup, which can't read render
   // state. Kept in sync below so navigating away with a staged-but-unsent
   // attachment GCs the orphaned object.
@@ -198,6 +242,21 @@ export function MessageComposer({
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, []);
 
+  const chooseQuickReply = useCallback(
+    (reply: QuickReply) => {
+      setText(reply.body);
+      setSlashDismissed(true);
+      setSlashIndex(0);
+      requestAnimationFrame(() => {
+        adjustHeight();
+        const textarea = textareaRef.current;
+        textarea?.focus();
+        textarea?.setSelectionRange(reply.body.length, reply.body.length);
+      });
+    },
+    [adjustHeight]
+  );
+
   const handleSend = useCallback(async () => {
     const trimmed = text.trim();
     if (!trimmed || sending || sessionExpired) return;
@@ -216,17 +275,44 @@ export function MessageComposer({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashMatches.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSlashIndex((current) => (current + 1) % slashMatches.length);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSlashIndex(
+            (current) =>
+              (current - 1 + slashMatches.length) % slashMatches.length
+          );
+          return;
+        }
+        if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+          e.preventDefault();
+          chooseQuickReply(slashMatches[slashIndex] ?? slashMatches[0]);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSlashDismissed(true);
+          return;
+        }
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSend();
       }
     },
-    [handleSend]
+    [chooseQuickReply, handleSend, slashIndex, slashMatches]
   );
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setText(e.target.value);
+      setSlashDismissed(false);
+      setSlashIndex(0);
       adjustHeight();
     },
     [adjustHeight]
@@ -242,25 +328,49 @@ export function MessageComposer({
       const res = await fetch('/api/ai/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversation_id: conversationId }),
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          request_id: crypto.randomUUID(),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (data.code === 'ai_not_configured') {
           toast.error(
-            "AI isn't set up yet — enable it in Settings → AI Assistant."
+            'El asistente de IA todavía no está activo para esta empresa.'
           );
+        } else if (data.code === 'ai_insufficient_points') {
+          toast.error('La empresa no tiene Puntos Nexora suficientes.');
         } else {
-          toast.error(data.error ?? "Couldn't draft a reply.");
+          toast.error(data.error ?? 'No se pudo crear la sugerencia.');
         }
         return;
       }
       const draftText = typeof data.draft === 'string' ? data.draft.trim() : '';
       if (!draftText) {
-        toast.error("The assistant didn't return a reply.");
+        toast.error('El asistente no devolvió una respuesta.');
         return;
       }
       setText(draftText);
+      const catalogMatches: Array<{ id: string; label: string }> =
+        Array.isArray(data.catalog_matches)
+          ? data.catalog_matches.filter(
+              (match: unknown): match is { id: string; label: string } =>
+                Boolean(match) &&
+                typeof match === 'object' &&
+                typeof (match as { id?: unknown }).id === 'string' &&
+                typeof (match as { label?: unknown }).label === 'string'
+            )
+          : [];
+      if (catalogMatches.length) {
+        toast.info(
+          `La IA encontró ${catalogMatches.length} ${
+            catalogMatches.length === 1 ? 'unidad' : 'unidades'
+          } del catálogo: ${catalogMatches
+            .map((match) => match.label)
+            .join(', ')}. Revisa el catálogo antes de enviar una ficha.`
+        );
+      }
       // Let the textarea grow to fit and drop the cursor at the end so
       // the agent can tweak immediately.
       requestAnimationFrame(() => {
@@ -272,7 +382,7 @@ export function MessageComposer({
         }
       });
     } catch {
-      toast.error("Couldn't reach the AI assistant.");
+      toast.error('No se pudo conectar con el asistente de IA.');
     } finally {
       setDrafting(false);
     }
@@ -323,6 +433,52 @@ export function MessageComposer({
     },
     [stageUpload]
   );
+
+  useEffect(() => {
+    if (
+      !droppedAttachment ||
+      handledDropIdRef.current === droppedAttachment.id
+    ) {
+      return;
+    }
+    handledDropIdRef.current = droppedAttachment.id;
+
+    if (textOnly) {
+      toast.error('Este canal actualmente permite responder solo con texto.');
+      return;
+    }
+    if (inputsDisabled) {
+      toast.error(
+        channelUnavailableReason ||
+          (sessionExpired
+            ? 'La sesión de 24 horas expiró. Usa una plantilla para responder.'
+            : 'Debes aceptar o tener asignada la conversación antes de adjuntar archivos.')
+      );
+      return;
+    }
+    if (busy) {
+      toast.error('Espera a que termine la carga actual.');
+      return;
+    }
+
+    const kind = classifyChatAttachment(droppedAttachment.file);
+    if (!kind) {
+      toast.error(
+        'Formato no compatible. Usa imágenes JPG/PNG/WEBP, videos MP4, documentos comunes o audios compatibles.'
+      );
+      return;
+    }
+
+    void stageUpload(kind, droppedAttachment.file);
+  }, [
+    busy,
+    channelUnavailableReason,
+    droppedAttachment,
+    inputsDisabled,
+    sessionExpired,
+    stageUpload,
+    textOnly,
+  ]);
 
   // ---- Voice recording (client-side Ogg/Opus, no server transcode) ---
 
@@ -461,7 +617,13 @@ export function MessageComposer({
   // ---- Render --------------------------------------------------------
 
   return (
-    <div className="border-border bg-card border-t p-3">
+    <div className="border-border/60 bg-card/95 relative border-t p-5 backdrop-blur-xl sm:px-6">
+      <VehicleSharePicker
+        open={catalogOpen}
+        onOpenChange={setCatalogOpen}
+        channelMode={textOnly ? 'social' : 'whatsapp'}
+        conversationId={conversationId}
+      />
       {replyTo && (
         <div className="mb-2">
           <ReplyQuote
@@ -504,7 +666,7 @@ export function MessageComposer({
       <input
         ref={imageInputRef}
         type="file"
-        accept={PICKER_ACCEPT.image}
+        accept={CHAT_ATTACHMENT_ACCEPT.image}
         className="hidden"
         onChange={(e) => {
           handlePicked('image', e.target.files?.[0]);
@@ -514,7 +676,7 @@ export function MessageComposer({
       <input
         ref={videoInputRef}
         type="file"
-        accept={PICKER_ACCEPT.video}
+        accept={CHAT_ATTACHMENT_ACCEPT.video}
         className="hidden"
         onChange={(e) => {
           handlePicked('video', e.target.files?.[0]);
@@ -524,7 +686,7 @@ export function MessageComposer({
       <input
         ref={documentInputRef}
         type="file"
-        accept={PICKER_ACCEPT.document}
+        accept={CHAT_ATTACHMENT_ACCEPT.document}
         className="hidden"
         onChange={(e) => {
           handlePicked('document', e.target.files?.[0]);
@@ -566,62 +728,114 @@ export function MessageComposer({
           </Button>
         </div>
       ) : (
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-3">
+          {slashMatches.length > 0 ? (
+            <div className="border-border bg-popover absolute right-0 bottom-full left-0 z-30 mb-2 overflow-hidden rounded-xl border shadow-xl sm:left-20">
+              <div className="border-border text-muted-foreground border-b px-3 py-2 text-[11px] font-semibold tracking-wide uppercase">
+                Respuestas rápidas · Enter para insertar
+              </div>
+              {slashMatches.map((reply, index) => (
+                <button
+                  key={reply.id}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => chooseQuickReply(reply)}
+                  className={cn(
+                    'flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors',
+                    index === slashIndex ? 'bg-primary/10' : 'hover:bg-muted'
+                  )}
+                >
+                  <code className="text-primary min-w-20 text-xs font-semibold">
+                    {reply.shortcut ?? '/'}
+                  </code>
+                  <span className="min-w-0">
+                    <span className="text-foreground block truncate text-sm font-medium">
+                      {reply.title}
+                    </span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      {reply.body}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {/* Attach menu — photo / video / document / voice. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              disabled={inputsDisabled || busy}
-              title={
-                readOnly
-                  ? (channelUnavailableReason ??
-                    "Read-only — your role can't send messages")
-                  : inputsDisabled
-                    ? undefined
-                    : 'Attach media'
-              }
-              className="text-muted-foreground hover:text-foreground inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Paperclip className="h-4 w-4" />
-              )}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
-                <ImageIcon className="mr-2 h-4 w-4" />
-                Photo
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => videoInputRef.current?.click()}>
-                <Video className="mr-2 h-4 w-4" />
-                Video
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => documentInputRef.current?.click()}
+          {!textOnly && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                disabled={inputsDisabled || busy}
+                title={
+                  readOnly
+                    ? (channelUnavailableReason ??
+                      "Read-only — your role can't send messages")
+                    : inputsDisabled
+                      ? undefined
+                      : 'Attach media'
+                }
+                className="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex size-11 shrink-0 items-center justify-center rounded-xl p-0 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <FileText className="mr-2 h-4 w-4" />
-                Document
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void startRecording()}>
-                <Mic className="mr-2 h-4 w-4" />
-                Voice note
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Paperclip className="h-4 w-4" />
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="border-border bg-popover"
+              >
+                <DropdownMenuItem
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  <ImageIcon className="mr-2 h-4 w-4" />
+                  Photo
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => videoInputRef.current?.click()}
+                >
+                  <Video className="mr-2 h-4 w-4" />
+                  Video
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => documentInputRef.current?.click()}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  Document
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void startRecording()}>
+                  <Mic className="mr-2 h-4 w-4" />
+                  Voice note
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {!textOnly && (
+            <GatedButton
+              variant="ghost"
+              size="sm"
+              canAct={!readOnly}
+              gateReason="send messages"
+              title={readOnly ? undefined : 'Send template'}
+              className="text-muted-foreground hover:text-foreground size-11 shrink-0 p-0"
+              onClick={onOpenTemplates}
+            >
+              <LayoutTemplate className="h-4 w-4" />
+            </GatedButton>
+          )}
 
           <GatedButton
             variant="ghost"
             size="sm"
             canAct={!readOnly}
             gateReason="send messages"
-            title={readOnly ? undefined : 'Send template'}
-            className="text-muted-foreground hover:text-foreground h-9 w-9 shrink-0 p-0"
-            onClick={onOpenTemplates}
+            disabled={inputsDisabled}
+            title={readOnly ? undefined : 'Enviar vehículo del catálogo'}
+            className="text-muted-foreground hover:text-primary size-11 shrink-0 p-0"
+            onClick={() => setCatalogOpen(true)}
           >
-            <LayoutTemplate className="h-4 w-4" />
+            <CarFront className="h-4 w-4" />
           </GatedButton>
 
           <GatedButton
@@ -631,7 +845,7 @@ export function MessageComposer({
             gateReason="send messages"
             disabled={drafting}
             title={readOnly ? undefined : 'Draft a reply with AI'}
-            className="text-muted-foreground hover:text-primary h-9 w-9 shrink-0 p-0"
+            className="text-muted-foreground hover:text-primary size-11 shrink-0 p-0"
             onClick={handleDraft}
           >
             {drafting ? (
@@ -652,7 +866,7 @@ export function MessageComposer({
                   'Read-only — viewers can browse but not reply')
                 : sessionExpired
                   ? 'Session expired - use a template'
-                  : 'Type a message... (Shift+Enter for new line)'
+                  : 'Escribe un mensaje o / para respuestas rápidas'
             }
             disabled={sessionExpired || readOnly}
             rows={1}
@@ -666,7 +880,7 @@ export function MessageComposer({
                 : undefined
             }
             className={cn(
-              'border-border bg-muted text-foreground placeholder-muted-foreground focus:border-primary/50 flex-1 resize-none rounded-xl border px-4 py-2.5 text-sm transition-colors outline-none',
+              'border-border bg-muted/70 text-foreground placeholder-muted-foreground focus:border-primary/50 flex-1 resize-none rounded-2xl border px-4 py-3 text-base leading-6 transition-colors outline-none',
               (sessionExpired || readOnly) && 'cursor-not-allowed opacity-50'
             )}
           />
@@ -677,7 +891,7 @@ export function MessageComposer({
             gateReason="send messages"
             disabled={!text.trim() || sessionExpired || sending}
             onClick={handleSend}
-            className="bg-primary hover:bg-primary/90 h-9 w-9 shrink-0 p-0 disabled:opacity-40"
+            className="bg-primary hover:bg-primary/90 size-11 shrink-0 rounded-2xl p-0 disabled:opacity-40"
           >
             <Send className="h-4 w-4" />
           </GatedButton>
@@ -688,7 +902,12 @@ export function MessageComposer({
           `items-end` buttons below the textarea. Indented to line up
           under the textarea left edge. */}
       {!draft && !recording && (
-        <p className="text-muted-foreground mt-1 pl-[5.5rem] text-[10px]">
+        <p
+          className={cn(
+            'text-muted-foreground mt-1 text-[10px]',
+            textOnly ? 'pl-[2.75rem]' : 'pl-[5.5rem]'
+          )}
+        >
           Tap the ✨ to draft a reply with AI — you can edit it before sending
         </p>
       )}

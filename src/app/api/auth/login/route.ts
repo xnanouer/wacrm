@@ -9,7 +9,11 @@ import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
   const forwardedFor = request.headers.get('x-forwarded-for');
-  const clientIp = forwardedFor?.split(',')[0]?.trim() || 'local';
+  const clientIp =
+    request.headers.get('cf-connecting-ip')?.trim() ||
+    request.headers.get('x-real-ip')?.trim() ||
+    forwardedFor?.split(',')[0]?.trim() ||
+    'local';
 
   let body: Record<string, unknown>;
   try {
@@ -20,12 +24,15 @@ export async function POST(request: Request) {
 
   const email = typeof body.email === 'string' ? body.email.trim() : '';
   const password = typeof body.password === 'string' ? body.password : '';
-  if (!email || !password) {
+  if (!email || !password || email.length > 254 || password.length > 256) {
     return NextResponse.json(
       { error: 'Email y contraseña son obligatorios' },
       { status: 400 }
     );
   }
+
+  const ipLimit = checkRateLimit(`login-ip:${clientIp}`, RATE_LIMITS.loginIp);
+  if (!ipLimit.success) return rateLimitResponse(ipLimit);
 
   const limit = checkRateLimit(
     `login:${clientIp}:${email.toLowerCase()}`,
@@ -39,9 +46,32 @@ export async function POST(request: Request) {
     password,
   });
 
-  if (error || !data.user) {
+  if (error) {
+    const upstreamUnavailable =
+      (typeof error.status === 'number' && error.status >= 500) ||
+      /fetch failed|network|timeout|timed out|econn|enotfound|eacces/i.test(
+        error.message
+      );
+    if (upstreamUnavailable) {
+      console.error('[auth] Supabase login unavailable:', error.message);
+      return NextResponse.json(
+        {
+          error:
+            'No pudimos conectar con el servicio de acceso. Intenta nuevamente en unos segundos.',
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
-      { error: error?.message || 'No se pudo iniciar sesión' },
+      { error: 'Correo o contraseña incorrectos' },
+      { status: 401 }
+    );
+  }
+
+  if (!data.user) {
+    return NextResponse.json(
+      { error: 'Correo o contraseña incorrectos' },
       { status: 401 }
     );
   }

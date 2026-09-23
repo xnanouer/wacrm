@@ -1,16 +1,150 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import {
+  ArrowRight,
+  Bot,
+  CarFront,
+  Gauge,
+  ImageOff,
+  Loader2,
+  MapPin,
+  RotateCcw,
+  Send,
+  UserCircle2,
+} from 'lucide-react';
 import { toast } from 'sonner';
-import { Bot, RotateCcw, Send, Loader2, UserCircle2, ArrowRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
+
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
+interface CatalogPreview {
+  id: string;
+  title: string;
+  make: string;
+  model: string;
+  version: string;
+  year: number;
+  description: string;
+  color: string;
+  engine: string;
+  list_price: number;
+  offer_price: number | null;
+  displayed_price: number;
+  minimum_down_payment: number | null;
+  financing_text: string;
+  mileage: number;
+  fuel: string;
+  transmission: string;
+  drivetrain: string;
+  location: string;
+  image_url: string | null;
+}
 
 interface Turn {
   role: 'user' | 'assistant';
   content: string;
-  /** assistant-only: the agent signalled a human handoff on this turn. */
   handoff?: boolean;
+  catalogPreview?: CatalogPreview[];
+  details?: {
+    tone?: string;
+    informationUsed?: string[];
+    warnings?: string[];
+    pointsEstimated?: number;
+    pointsUsed?: number;
+  };
+}
+
+function clp(value: number): string {
+  return new Intl.NumberFormat('es-CL', {
+    style: 'currency',
+    currency: 'CLP',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function CatalogCard({ item }: { item: CatalogPreview }) {
+  const name = `${item.make} ${item.model} ${item.version}`.trim();
+
+  return (
+    <div className="border-border bg-background mt-3 overflow-hidden rounded-2xl border shadow-sm">
+      {item.image_url ? (
+        <a
+          href={item.image_url}
+          target="_blank"
+          rel="noreferrer"
+          className="bg-muted block h-44 overflow-hidden"
+          aria-label={`Ver fotografía de ${name}`}
+        >
+          {/* Signed Supabase URLs are already optimized catalog assets. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={item.image_url}
+            alt={name}
+            className="h-full w-full object-cover transition-transform duration-200 hover:scale-[1.02]"
+          />
+        </a>
+      ) : (
+        <div className="bg-muted text-muted-foreground flex h-32 items-center justify-center">
+          <ImageOff className="size-7" />
+        </div>
+      )}
+      <div className="space-y-2.5 p-4">
+        <div>
+          <p className="text-foreground leading-5 font-bold">{name}</p>
+          {item.offer_price !== null && (
+            <p className="text-muted-foreground mt-1 text-xs line-through">
+              Precio lista {clp(item.list_price)}
+            </p>
+          )}
+          <p className="text-primary mt-1 text-base font-extrabold">
+            Valor vehículo {clp(item.displayed_price)}
+          </p>
+          {item.minimum_down_payment !== null && (
+            <p className="mt-1 text-sm font-bold text-emerald-600">
+              Pie inicial desde {clp(item.minimum_down_payment)}
+            </p>
+          )}
+        </div>
+        <div className="text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+          <span className="flex items-center gap-1.5">
+            <CarFront className="size-3.5" /> Año {item.year}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Gauge className="size-3.5" />
+            {item.mileage.toLocaleString('es-CL')} km
+          </span>
+          <span>{item.transmission}</span>
+          <span>
+            {item.fuel} · {item.drivetrain}
+          </span>
+          {item.engine && <span>Motor {item.engine}</span>}
+          {item.color && <span>Color {item.color}</span>}
+        </div>
+        {item.financing_text && (
+          <p className="border-border text-muted-foreground border-t pt-2 text-xs leading-5">
+            <span className="text-foreground font-semibold">
+              Financiamiento:{' '}
+            </span>
+            {item.financing_text}
+          </p>
+        )}
+        {item.description && (
+          <p className="text-muted-foreground text-xs leading-5">
+            {item.description}
+          </p>
+        )}
+        {item.location && (
+          <p className="text-muted-foreground flex items-center gap-1.5 border-t pt-2 text-xs">
+            <MapPin className="size-3.5" /> {item.location}
+          </p>
+        )}
+        <p className="text-[10px] font-semibold tracking-wide text-emerald-600 uppercase">
+          Vista previa · no enviado
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
@@ -23,31 +157,36 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [turns, sending]);
 
-  const send = async () => {
+  async function send() {
     const text = input.trim();
     if (!text || sending) return;
-
     const next: Turn[] = [...turns, { role: 'user', content: text }];
     setTurns(next);
     setInput('');
     setSending(true);
     try {
-      const res = await fetch('/api/ai/playground', {
+      const response = await fetch('/api/ai/playground', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Send only role+content — the server ignores anything else.
         body: JSON.stringify({
-          messages: next.map((t) => ({ role: t.role, content: t.content })),
+          request_id: crypto.randomUUID(),
+          messages: next.map((turn) => ({
+            role: turn.role,
+            content:
+              turn.role === 'assistant' && turn.catalogPreview?.length
+                ? `${turn.content}\n\n[Catálogo mostrado por Nexora: ${turn.catalogPreview
+                    .map(
+                      (item, index) =>
+                        `${index + 1}. ${item.make} ${item.model} ${item.year}`
+                    )
+                    .join('; ')}]`
+                : turn.content,
+          })),
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (data.code === 'ai_not_configured') {
-          toast.error('No agent configured yet — finish Setup first.');
-        } else {
-          toast.error(data.error ?? "Couldn't get a reply.");
-        }
-        // Roll the unsent user turn back so the transcript stays clean.
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        toast.error(data.error ?? 'No se pudo generar la prueba.');
         setTurns(turns);
         setInput(text);
         return;
@@ -56,140 +195,168 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
         ...next,
         {
           role: 'assistant',
-          content:
-            typeof data.reply === 'string' && data.reply.trim()
-              ? data.reply
-              : '',
+          content: typeof data.reply === 'string' ? data.reply : '',
           handoff: Boolean(data.handoff),
+          catalogPreview: Array.isArray(data.catalog_preview)
+            ? data.catalog_preview
+            : [],
+          details: {
+            tone: data.tone,
+            informationUsed: data.information_used,
+            warnings: data.warnings,
+            pointsEstimated: data.points_estimated,
+            pointsUsed: data.points_used,
+          },
         },
       ]);
     } catch {
-      toast.error("Couldn't reach the agent.");
+      toast.error('No se pudo conectar con el agente.');
       setTurns(turns);
       setInput(text);
     } finally {
       setSending(false);
     }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      void send();
-    }
-  };
+  }
 
   return (
-    <div className="flex h-[60vh] min-h-[420px] flex-col rounded-xl border border-border bg-card">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+    <div className="border-border bg-card flex h-[68vh] min-h-[540px] flex-col overflow-hidden rounded-3xl border">
+      <div className="border-border flex items-center justify-between border-b px-5 py-4">
         <div className="flex items-center gap-2">
-          <Bot className="h-4 w-4 text-primary" />
-          <span className="text-sm font-medium text-foreground">Playground</span>
-          <span className="text-xs text-muted-foreground">
-            — test replies as if you were a customer
+          <span className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-xl">
+            <Bot className="size-4" />
           </span>
+          <div>
+            <p className="text-sm font-semibold">Prueba segura</p>
+            <p className="text-muted-foreground text-xs">
+              No envía mensajes, no modifica datos y no descuenta puntos.
+            </p>
+          </div>
         </div>
         <Button
           variant="ghost"
           size="sm"
           onClick={() => setTurns([])}
-          disabled={turns.length === 0 || sending}
-          className="text-muted-foreground"
+          disabled={!turns.length || sending}
         >
-          <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reset
+          <RotateCcw className="mr-1.5 size-3.5" /> Reiniciar
         </Button>
       </div>
 
-      {/* Transcript */}
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
-        {turns.length === 0 && (
-          <div className="flex h-full flex-col items-center justify-center text-center text-sm text-muted-foreground">
-            <Bot className="mb-2 h-8 w-8 text-muted-foreground/60" />
-            <p>Send a message to see how your agent would reply.</p>
-            <p className="mt-1 text-xs">
-              It uses your knowledge base and behaves exactly like the
-              auto-reply bot — including handoff.
+      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-5">
+        {!turns.length && (
+          <div className="text-muted-foreground flex h-full flex-col items-center justify-center text-center text-sm">
+            <Bot className="text-primary/60 mb-3 size-10" />
+            <p className="text-foreground font-semibold">
+              Habla como si fueras un cliente
+            </p>
+            <p className="mt-1 max-w-md text-xs leading-5">
+              Nexora usará el tono, FAQs, reglas y catálogo autorizado de esta
+              empresa para preparar una sugerencia.
             </p>
             {onGoToSetup && (
               <Button
                 variant="link"
                 size="sm"
                 onClick={onGoToSetup}
-                className="mt-1 h-auto p-0 text-xs"
+                className="mt-2"
               >
-                Not set up yet? Go to Setup <ArrowRight className="ml-1 h-3 w-3" />
+                Ir a la configuración
+                <ArrowRight className="ml-1 size-3" />
               </Button>
             )}
           </div>
         )}
 
-        {turns.map((t, i) => (
+        {turns.map((turn, index) => (
           <div
-            key={i}
+            key={`${turn.role}-${index}`}
             className={cn(
               'flex gap-2',
-              t.role === 'user' ? 'justify-end' : 'justify-start',
+              turn.role === 'user' ? 'justify-end' : 'justify-start'
             )}
           >
-            {t.role === 'assistant' && (
-              <Bot className="mt-1 h-5 w-5 shrink-0 text-primary" />
+            {turn.role === 'assistant' && (
+              <Bot className="text-primary mt-1 size-5 shrink-0" />
             )}
             <div
               className={cn(
-                'max-w-[80%] rounded-2xl px-3.5 py-2 text-sm',
-                t.role === 'user'
-                  ? 'rounded-br-sm bg-primary text-primary-foreground'
-                  : 'rounded-bl-sm bg-muted text-foreground',
+                'max-w-[82%] rounded-2xl px-4 py-3 text-sm',
+                turn.role === 'user'
+                  ? 'bg-primary text-primary-foreground rounded-br-sm'
+                  : 'bg-muted text-foreground rounded-bl-sm'
               )}
             >
-              {t.content && <p className="whitespace-pre-wrap">{t.content}</p>}
-              {t.role === 'assistant' && t.handoff && (
-                <p
-                  className={cn(
-                    'flex items-center gap-1 text-xs text-amber-500',
-                    t.content && 'mt-1.5 border-t border-border/50 pt-1.5',
-                  )}
-                >
-                  <UserCircle2 className="h-3.5 w-3.5" />
-                  Would hand off to a human here
+              <p className="whitespace-pre-wrap">{turn.content}</p>
+              {turn.role === 'assistant' &&
+                turn.catalogPreview?.map((item) => (
+                  <CatalogCard key={item.id} item={item} />
+                ))}
+              {turn.role === 'assistant' && turn.handoff && (
+                <p className="border-border/60 mt-2 flex items-center gap-1 border-t pt-2 text-xs text-amber-500">
+                  <UserCircle2 className="size-3.5" />
+                  Recomendaría intervención humana
                 </p>
               )}
+              {turn.role === 'assistant' && turn.details && (
+                <div className="border-border/60 text-muted-foreground mt-3 space-y-1 border-t pt-2 text-[11px]">
+                  <p>
+                    Modo: Sugerencia · Tono:{' '}
+                    {turn.details.tone || 'configurado'}
+                  </p>
+                  <p>
+                    Información:{' '}
+                    {turn.details.informationUsed?.join(', ') ||
+                      'configuración del agente'}
+                  </p>
+                  <p>
+                    Puntos: {turn.details.pointsEstimated ?? 1} estimado ·{' '}
+                    {turn.details.pointsUsed ?? 0} descontados
+                  </p>
+                  {turn.details.warnings?.map((warning) => (
+                    <p key={warning} className="text-amber-500">
+                      {warning}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
-            {t.role === 'user' && (
-              <UserCircle2 className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" />
+            {turn.role === 'user' && (
+              <UserCircle2 className="text-muted-foreground mt-1 size-5 shrink-0" />
             )}
           </div>
         ))}
 
         {sending && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Bot className="h-5 w-5 text-primary" />
-            <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Bot className="text-primary size-5" />
+            <Loader2 className="size-4 animate-spin" /> Preparando sugerencia...
           </div>
         )}
       </div>
 
-      {/* Composer */}
-      <div className="flex items-end gap-2 border-t border-border p-3">
+      <div className="border-border flex items-end gap-2 border-t p-4">
         <textarea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type a customer message…"
-          rows={1}
-          className="flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50"
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              void send();
+            }
+          }}
+          placeholder="Ejemplo: Hola, busco una camioneta automática..."
+          rows={2}
+          className="border-border bg-muted text-foreground placeholder:text-muted-foreground focus:border-primary/50 flex-1 resize-none rounded-2xl border px-4 py-3 text-sm outline-none"
         />
         <Button
-          size="sm"
-          onClick={send}
+          onClick={() => void send()}
           disabled={!input.trim() || sending}
-          className="h-9 w-9 shrink-0 p-0"
+          className="size-11 rounded-xl p-0"
         >
           {sending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="size-4 animate-spin" />
           ) : (
-            <Send className="h-4 w-4" />
+            <Send className="size-4" />
           )}
         </Button>
       </div>

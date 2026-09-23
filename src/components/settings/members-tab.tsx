@@ -3,15 +3,9 @@
 // ============================================================
 // MembersTab — Settings → Members
 //
-// Two stacked sections:
-//   1. Roster   — every member of the account. Admin+ can change a
-//                 teammate's role inline and remove them. Owner row
-//                 is non-editable everywhere (transfer is its own
-//                 separate flow, deferred to a later PR).
-//   2. Pending  — outstanding invite links. Admin+ can revoke. The
-//                 plaintext URL is gone after the create dialog
-//                 closes, so we surface a "revoke + new link" hint
-//                 rather than pretending we can resurface it.
+// Roster for every member of the account. Admin+ can create a login
+// directly, change a teammate's role inline, and remove them. Owner row
+// is non-editable everywhere (ownership transfer is a separate flow).
 //
 // Role-gating
 //   The tab itself is reachable by any member, but mutation buttons
@@ -23,15 +17,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  AlertTriangle,
-  Loader2,
-  Mail,
-  MailX,
-  Plus,
-  Trash2,
-  UsersRound,
-} from 'lucide-react';
+import { AlertTriangle, Loader2, Plus, Trash2 } from 'lucide-react';
 
 import {
   Avatar,
@@ -71,7 +57,7 @@ import {
   PRESENCE_DOT_CLASS,
   PresenceDot,
 } from '@/components/presence/presence-dot';
-import { InviteMemberDialog } from './invite-member-dialog';
+import { CreateMemberDialog } from './create-member-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ROLE_META } from './role-meta';
 
@@ -84,25 +70,20 @@ interface Member {
   joined_at: string;
 }
 
-interface Invitation {
-  id: string;
-  role: 'admin' | 'supervisor' | 'agent' | 'viewer';
-  label: string | null;
-  created_at: string;
-  expires_at: string;
+interface SeatUsage {
+  planCode: string;
+  planName: string;
+  currentUsers: number;
+  maxUsers: number | null;
+  remainingUsers: number | null;
 }
 
-// Editable roles in the inline dropdown. Owner is never an option —
-// promotions go through the (deferred) Transfer Ownership flow.
+// Nexora exposes only two workspace roles. The primary administrator keeps
+// an internal `owner` marker for account integrity, but is presented as an
+// administrator throughout the product.
 const EDITABLE_ROLES: { value: AccountRole; label: string; hint: string }[] = [
-  { value: 'admin', label: 'Admin', hint: 'Manage members + everything' },
-  {
-    value: 'supervisor',
-    label: 'Supervisor',
-    hint: 'Manage tickets in assigned departments',
-  },
-  { value: 'agent', label: 'Agent', hint: 'Use features; no settings' },
-  { value: 'viewer', label: 'Viewer', hint: 'Read-only across the app' },
+  { value: 'admin', label: 'Administrador', hint: 'Administra la empresa' },
+  { value: 'agent', label: 'Agente', hint: 'Atiende conversaciones' },
 ];
 
 // Per-role chip metadata (icon / label / colour) lives in the shared
@@ -120,24 +101,15 @@ function fmtDate(iso: string): string {
   });
 }
 
-function fmtExpiresIn(iso: string): string {
-  const ms = new Date(iso).getTime() - Date.now();
-  if (ms <= 0) return 'expired';
-  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
-  if (days >= 1) return `expires in ${days} day${days === 1 ? '' : 's'}`;
-  const hours = Math.max(1, Math.floor(ms / (60 * 60 * 1000)));
-  return `expires in ${hours} hour${hours === 1 ? '' : 's'}`;
-}
-
 export function MembersTab() {
   const { user, canManageMembers } = useAuth();
   const { getPresence, getRow, now } = usePresence();
 
   const [members, setMembers] = useState<Member[]>([]);
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [seats, setSeats] = useState<SeatUsage | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [inviteOpen, setInviteOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [removingMember, setRemovingMember] = useState<Member | null>(null);
   const [pendingMemberAction, setPendingMemberAction] = useState<string | null>(
     null
@@ -145,39 +117,26 @@ export function MembersTab() {
 
   const loadEverything = useCallback(async () => {
     try {
-      const [mres, ires] = await Promise.all([
-        fetch('/api/account/members', { cache: 'no-store' }),
-        canManageMembers
-          ? fetch('/api/account/invitations', { cache: 'no-store' })
-          : Promise.resolve(null),
-      ]);
+      const mres = await fetch('/api/account/members', { cache: 'no-store' });
 
       if (!mres.ok) {
         const payload = await mres.json().catch(() => ({}));
         toast.error(payload.error || 'Failed to load members');
         return;
       }
-      const mdata = (await mres.json()) as { members: Member[] };
+      const mdata = (await mres.json()) as {
+        members: Member[];
+        seats: SeatUsage;
+      };
       setMembers(mdata.members);
-
-      if (ires) {
-        if (!ires.ok) {
-          const payload = await ires.json().catch(() => ({}));
-          toast.error(payload.error || 'Failed to load invitations');
-          return;
-        }
-        const idata = (await ires.json()) as { invitations: Invitation[] };
-        setInvitations(idata.invitations);
-      } else {
-        setInvitations([]);
-      }
+      setSeats(mdata.seats);
     } catch (err) {
       console.error('[MembersTab] load error:', err);
       toast.error('Could not reach the server');
     } finally {
       setLoading(false);
     }
-  }, [canManageMembers]);
+  }, []);
 
   useEffect(() => {
     void loadEverything();
@@ -257,24 +216,6 @@ export function MembersTab() {
     }
   }
 
-  async function handleRevoke(invite: Invitation) {
-    try {
-      const res = await fetch(`/api/account/invitations/${invite.id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to revoke invitation');
-        return;
-      }
-      toast.success('Invitation revoked');
-      setInvitations((prev) => prev.filter((i) => i.id !== invite.id));
-    } catch (err) {
-      console.error('[MembersTab] revoke error:', err);
-      toast.error('Could not reach the server');
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -286,17 +227,50 @@ export function MembersTab() {
   return (
     <section className="animate-in fade-in-50 space-y-6 duration-200">
       <SettingsPanelHead
-        title="Team members"
-        description="People with access to this account. Roles control what each teammate can do."
+        title="Usuarios del equipo"
+        description="Crea accesos con correo y contraseña, asigna roles y controla los cupos del plan."
         action={
           <RequireRole min="admin">
-            <Button onClick={() => setInviteOpen(true)}>
+            <Button
+              onClick={() => setCreateOpen(true)}
+              disabled={seats?.maxUsers !== null && seats?.remainingUsers === 0}
+            >
               <Plus className="size-4" />
-              Invite member
+              Crear usuario
             </Button>
           </RequireRole>
         }
       />
+
+      {seats && (
+        <div className="border-border bg-muted/25 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm">
+          <div>
+            <span className="text-foreground font-semibold">
+              Plan {seats.planName}
+            </span>
+            <span className="text-muted-foreground">
+              {' '}
+              · {seats.currentUsers}
+              {seats.maxUsers === null
+                ? ' usuarios'
+                : ` de ${seats.maxUsers} usuarios`}
+            </span>
+          </div>
+          <span
+            className={
+              seats.remainingUsers === 0
+                ? 'text-xs font-semibold text-red-400'
+                : 'text-xs font-semibold text-emerald-400'
+            }
+          >
+            {seats.remainingUsers === null
+              ? 'Sin límite fijo'
+              : seats.remainingUsers === 0
+                ? 'Límite alcanzado'
+                : `${seats.remainingUsers} cupo${seats.remainingUsers === 1 ? '' : 's'} disponible${seats.remainingUsers === 1 ? '' : 's'}`}
+          </span>
+        </div>
+      )}
 
       {/* Live presence summary across the roster. Updates without a
           full refresh as heartbeats and the local re-derive tick land. */}
@@ -476,102 +450,13 @@ export function MembersTab() {
         </CardContent>
       </Card>
 
-      {/* Pending invitations — admin+ only */}
-      <RequireRole min="admin">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <UsersRound className="text-muted-foreground size-4" />
-            <h3 className="text-foreground text-sm font-semibold">
-              Pending invitations
-            </h3>
-            <Badge className="bg-muted text-muted-foreground border-border">
-              {invitations.length}
-            </Badge>
-          </div>
-          {/* P10 — make the no-resend design explicit. Admins were
-              confused why the pending list shows roles + expiry but
-              no "copy link again" button. Stating the constraint up
-              front (rather than letting the user discover it by
-              looking for a button) keeps it from feeling like a bug. */}
-          {invitations.length > 0 ? (
-            <p className="text-muted-foreground mb-3 text-xs">
-              The plaintext invite URL is only shown once at creation for
-              security — to re-share, revoke the invite below and create a new
-              one.
-            </p>
-          ) : null}
-
-          {invitations.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-                <Mail className="text-muted-foreground size-6" />
-                <p className="text-muted-foreground mt-2 text-sm">
-                  No pending invitations.
-                </p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  Click{' '}
-                  <span className="text-muted-foreground">Invite member</span>{' '}
-                  above to generate a shareable link.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <ul className="divide-border divide-y">
-                  {invitations.map((inv) => {
-                    const inviteRoleMeta = ROLE_META[inv.role];
-                    const InviteRoleIcon = inviteRoleMeta.icon;
-                    return (
-                      <li
-                        key={inv.id}
-                        className="flex items-center gap-4 px-4 py-3"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-foreground text-sm font-medium">
-                              {inv.label || 'Untitled invite'}
-                            </span>
-                            <span
-                              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${inviteRoleMeta.className}`}
-                            >
-                              <InviteRoleIcon className="size-3" />
-                              {inviteRoleMeta.label}
-                            </span>
-                          </div>
-                          <p className="text-muted-foreground mt-0.5 text-xs">
-                            Created {fmtDate(inv.created_at)} ·{' '}
-                            {fmtExpiresIn(inv.expires_at)}
-                          </p>
-                        </div>
-
-                        {/* Revoke: red default state, mirrors the
-                          members-tab Remove button. Pre-polish version
-                          read as a neutral secondary button until
-                          hover. */}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRevoke(inv)}
-                          className="border-red-500/40 bg-red-500/10 text-red-300 hover:border-red-500/60 hover:bg-red-500/20 hover:text-red-200"
-                        >
-                          <MailX className="size-4" />
-                          Revoke
-                        </Button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </RequireRole>
-
-      <InviteMemberDialog
-        open={inviteOpen}
-        onOpenChange={setInviteOpen}
+      <CreateMemberDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
         onCreated={loadEverything}
+        planName={seats?.planName}
+        currentUsers={members.length}
+        maxUsers={seats?.maxUsers ?? null}
       />
 
       <Dialog

@@ -35,6 +35,7 @@ import { hashApiKey, looksLikeApiKey } from '@/lib/api-keys/keys';
 import { hasScope, type ApiScope } from '@/lib/api-keys/scopes';
 import { forbidden, rateLimited, unauthorized } from '@/lib/api/v1/respond';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { hasOperationalAccess } from '@/lib/billing/access';
 
 export interface ApiKeyContext {
   /** Discriminant — lets shared logic tell key auth from cookie auth. */
@@ -105,11 +106,24 @@ export async function requireApiKey(
     throw forbidden(`This API key is missing the '${scope}' scope`);
   }
 
+  // API keys use the service role and therefore bypass tenant RLS. Enforce
+  // subscription state explicitly so a suspended company cannot keep using
+  // machine-to-machine endpoints after its dashboard is blocked.
+  const admin = supabaseAdmin();
+  const { data: account, error: accountError } = await admin
+    .from('accounts')
+    .select('subscription_status, trial_ends_at, grace_ends_at')
+    .eq('id', row.account_id)
+    .maybeSingle();
+  if (accountError || !account || !hasOperationalAccess(account)) {
+    throw forbidden('This account subscription is not operational');
+  }
+
   touchLastUsed(row.id);
 
   return {
     authType: 'api_key',
-    supabase: supabaseAdmin(),
+    supabase: admin,
     accountId: row.account_id,
     keyId: row.id,
     scopes: row.scopes,

@@ -1,73 +1,63 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Bot, Sparkles, Settings2 } from 'lucide-react';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { AiPlayground } from '@/components/agents/ai-playground';
-import { AiConfig } from '@/components/settings/ai-config';
+import { useState } from 'react';
+import { Bot, BrainCircuit, Gauge, Sparkles } from 'lucide-react';
 
-type Tab = 'playground' | 'setup';
+import { AiPlayground } from '@/components/agents/ai-playground';
+import { AiUsage } from '@/components/agents/ai-usage';
+import { AiConfig } from '@/components/settings/ai-config';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+type Tab = 'playground' | 'brain' | 'usage';
 
 export default function AgentsPage() {
-  const [tab, setTab] = useState<Tab>('playground');
-  const [decided, setDecided] = useState(false);
-
-  // Land first-time users on Setup, returning users on the Playground.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/ai/config');
-        const data = await res.json().catch(() => ({}));
-        if (!cancelled) setTab(data?.configured ? 'playground' : 'setup');
-      } catch {
-        if (!cancelled) setTab('setup');
-      } finally {
-        if (!cancelled) setDecided(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const [tab, setTab] = useState<Tab>('brain');
 
   return (
-    <div>
-      <div className="flex items-center gap-2">
-        <Bot className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          AI Agents
-        </h1>
+    <div className="nexora-page-stack">
+      <div className="border-primary/15 from-primary/8 via-card to-card relative overflow-hidden rounded-[28px] border bg-gradient-to-br p-6 sm:p-8">
+        <div className="bg-primary/12 pointer-events-none absolute -top-24 right-0 size-64 rounded-full blur-3xl" />
+        <div className="relative flex items-center gap-3">
+          <span className="bg-primary/10 text-primary ring-primary/15 flex size-12 items-center justify-center rounded-2xl ring-1">
+            <Bot className="size-6" />
+          </span>
+          <h1 className="text-foreground text-3xl font-bold tracking-[-0.04em] sm:text-4xl">
+            Agentes IA
+          </h1>
+        </div>
+        <p className="text-muted-foreground relative mt-4 max-w-3xl text-[15px] leading-7 sm:text-base">
+          Configura el cerebro de tu empresa, pruébalo de forma segura y
+          controla su consumo con Puntos Nexora.
+        </p>
       </div>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Your bring-your-own-key AI agent — set it up, then test it in the
-        playground before it replies to customers in the inbox.
-      </p>
 
-      {decided && (
-        <Tabs
-          value={tab}
-          onValueChange={(v) => setTab(v as Tab)}
-          className="mt-6"
-        >
-          <TabsList>
-            <TabsTrigger value="playground">
-              <Sparkles className="mr-1.5 h-4 w-4" /> Playground
-            </TabsTrigger>
-            <TabsTrigger value="setup">
-              <Settings2 className="mr-1.5 h-4 w-4" /> Setup
-            </TabsTrigger>
-          </TabsList>
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as Tab)}
+        className="gap-5"
+      >
+        <TabsList>
+          <TabsTrigger value="brain">
+            <BrainCircuit className="mr-1.5 size-4" /> Configuración
+          </TabsTrigger>
+          <TabsTrigger value="playground">
+            <Sparkles className="mr-1.5 size-4" /> Probar agente
+          </TabsTrigger>
+          <TabsTrigger value="usage">
+            <Gauge className="mr-1.5 size-4" /> Consumo
+          </TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="playground" className="mt-4">
-            <AiPlayground onGoToSetup={() => setTab('setup')} />
-          </TabsContent>
-
-          <TabsContent value="setup" className="mt-4">
-            <AiConfig />
-          </TabsContent>
-        </Tabs>
-      )}
+        <TabsContent value="playground" className="mt-1">
+          <AiPlayground onGoToSetup={() => setTab('brain')} />
+        </TabsContent>
+        <TabsContent value="brain" className="mt-1">
+          <AiConfig />
+        </TabsContent>
+        <TabsContent value="usage" className="mt-1">
+          <AiUsage />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

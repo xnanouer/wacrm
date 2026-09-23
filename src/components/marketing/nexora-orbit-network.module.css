@@ -1,0 +1,243 @@
+.network {
+  --network-size: min(43vw, 660px);
+  position: relative;
+  width: var(--network-size);
+  aspect-ratio: 1;
+  isolation: isolate;
+}
+
+.network::before {
+  position: absolute;
+  inset: 16%;
+  z-index: -2;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--primary) 20%, transparent);
+  filter: blur(88px);
+  content: '';
+}
+
+.network::after {
+  position: absolute;
+  inset: 5%;
+  z-index: -1;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--primary) 11%, transparent),
+    transparent 68%
+  );
+  content: '';
+}
+
+.orbit {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--background), var(--background)) padding-box,
+    conic-gradient(
+        from var(--orbit-start, 0deg),
+        transparent 0 15%,
+        color-mix(in oklab, var(--primary) 58%, transparent) 27%,
+        transparent 42% 64%,
+        color-mix(in oklab, var(--primary) 28%, transparent) 77%,
+        transparent 92%
+      )
+      border-box;
+  box-shadow: 0 0 40px -28px var(--primary);
+  transform: translate(-50%, -50%);
+}
+
+.orbit::before,
+.orbit::after {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 18px var(--primary);
+  content: '';
+}
+
+.orbit::before {
+  left: -4px;
+}
+
+.orbit::after {
+  right: -4px;
+}
+
+.orbitOne {
+  --orbit-start: 20deg;
+  width: 42%;
+  aspect-ratio: 1;
+  animation: orbit-spin 22s linear infinite;
+}
+
+.orbitTwo {
+  --orbit-start: 170deg;
+  width: 62%;
+  aspect-ratio: 1;
+  animation: orbit-spin-reverse 30s linear infinite;
+}
+
+.orbitThree {
+  --orbit-start: 260deg;
+  width: 82%;
+  aspect-ratio: 1;
+  animation: orbit-spin 42s linear infinite;
+}
+
+.orbitFour {
+  --orbit-start: 90deg;
+  width: 100%;
+  aspect-ratio: 1;
+  opacity: 0.68;
+  animation: orbit-spin-reverse 56s linear infinite;
+}
+
+.scan {
+  position: absolute;
+  inset: 12%;
+  z-index: -1;
+  border-radius: 999px;
+  background: conic-gradient(
+    from 90deg,
+    transparent 0 78%,
+    color-mix(in oklab, var(--primary) 26%, transparent) 92%,
+    transparent
+  );
+  -webkit-mask: radial-gradient(circle, transparent 0 58%, #000 59% 100%);
+  mask: radial-gradient(circle, transparent 0 58%, #000 59% 100%);
+  animation: scan-spin 10s linear infinite;
+}
+
+.centerPulse {
+  animation: center-pulse 4.5s ease-in-out infinite;
+}
+
+.node {
+  position: absolute;
+  z-index: 12;
+  animation: node-enter 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--delay, 0s);
+}
+
+.nodeCard {
+  transition:
+    transform 240ms ease,
+    border-color 240ms ease,
+    box-shadow 240ms ease;
+}
+
+.nodeCard:hover {
+  z-index: 20;
+  transform: translateY(-4px) scale(1.03);
+  border-color: color-mix(in oklab, var(--node-color) 55%, transparent);
+  box-shadow: 0 18px 42px -26px var(--node-color);
+}
+
+.signal {
+  animation: signal-pulse 2.2s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.tickerTrack {
+  width: max-content;
+  animation: ticker 28s linear infinite;
+}
+
+@keyframes orbit-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes orbit-spin-reverse {
+  to {
+    transform: translate(-50%, -50%) rotate(-360deg);
+  }
+}
+
+@keyframes scan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes center-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 20px transparent);
+  }
+  50% {
+    transform: scale(1.035);
+    filter: drop-shadow(
+      0 0 24px color-mix(in oklab, var(--primary) 42%, transparent)
+    );
+  }
+}
+
+@keyframes node-enter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.78);
+    filter: blur(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes signal-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes ticker {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 1279px) {
+  .network {
+    --network-size: min(49vw, 620px);
+  }
+}
+
+@media (max-width: 1023px) {
+  .network {
+    --network-size: min(88vw, 620px);
+  }
+}
+
+@media (max-width: 639px) {
+  .network {
+    --network-size: min(96vw, 510px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit,
+  .scan,
+  .centerPulse,
+  .node,
+  .signal,
+  .tickerTrack {
+    animation: none !important;
+  }
+}
