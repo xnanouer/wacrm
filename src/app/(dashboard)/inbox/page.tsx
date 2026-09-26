@@ -708,7 +708,7 @@ export default function InboxPage() {
   const hasActiveConv = !!activeConversation;
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden">
       {/* WhatsApp connection banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
       {whatsappConnected === false && (
@@ -720,13 +720,13 @@ export default function InboxPage() {
         </div>
       )}
 
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 w-full min-w-0 max-w-full flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
             thread can occupy the full width. Always visible on lg+. */}
         <div
           className={cn(
-            'flex h-full flex-1 lg:flex-none',
+            'flex h-full w-full min-w-0 max-w-full flex-1 overflow-hidden lg:w-auto lg:flex-none',
             hasActiveConv ? 'hidden lg:flex' : 'flex'
           )}
         >
@@ -752,7 +752,7 @@ export default function InboxPage() {
             on the right. Issue #165. */}
         <div
           className={cn(
-            'flex h-full min-w-0 flex-1 lg:flex',
+            'flex h-full w-full min-w-0 max-w-full flex-1 overflow-hidden lg:flex',
             hasActiveConv ? 'flex' : 'hidden lg:flex'
           )}
         >

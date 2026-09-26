@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   CarFront,
-  GitBranch,
   Home,
   Menu,
   MessageSquare,
@@ -47,7 +46,7 @@ export function MobileBottomNav({
     ? [
         { href: '/dashboard', label: 'Inicio', icon: Home },
         { href: '/inbox', label: 'Bandeja', icon: MessageSquare },
-        { href: '/pipelines', label: 'Leads', icon: GitBranch },
+        { href: '/quotes', label: 'Cotizaciones', icon: ReceiptText },
         { href: '/contacts', label: 'Contactos', icon: Users },
       ]
     : [
@@ -85,7 +84,7 @@ export function MobileBottomNav({
                 </span>
               ) : null}
             </span>
-            <span className="max-w-full truncate">{item.label}</span>
+            <span className="max-w-full truncate text-[10px]">{item.label}</span>
           </Link>
         );
       })}

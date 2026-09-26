@@ -554,7 +554,7 @@ export function ConversationList({
     // w-full on mobile so the list occupies the whole viewport when it's
     // the single pane showing; fixed width on desktop where it shares the
     // row with the thread + contact sidebar.
-    <div className="border-border/60 bg-card/95 flex h-full w-full min-w-0 flex-col overflow-hidden border-r backdrop-blur-xl lg:w-[25rem] xl:w-[27rem]">
+    <div className="border-border/60 bg-card/95 flex h-full w-full min-w-0 max-w-full flex-col overflow-hidden border-r-0 backdrop-blur-xl lg:w-[25rem] lg:border-r xl:w-[27rem]">
       <div className="border-border/60 border-b px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="mb-2.5 flex items-center justify-between gap-3 sm:mb-3">
           <div>
@@ -629,7 +629,7 @@ export function ConversationList({
             <Input
               value={search}
               onChange={handleSearchChange}
-              placeholder="Buscar leads..."
+              placeholder="Buscar cotizaciones..."
               aria-label="Buscar conversaciones por nombre, teléfono o mensaje"
               className="border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary/50 h-10 rounded-xl pr-3 pl-9 text-sm"
             />
@@ -990,7 +990,7 @@ export function ConversationList({
           <div className="px-4 py-12 text-center">
             <p className="text-foreground text-sm font-medium">
               {hasOperationalInboxViews && activeInboxView === 'queue'
-                ? 'No hay leads en espera'
+                ? 'No hay cotizaciones en espera'
                 : hasOperationalInboxViews && activeInboxView === 'mine'
                   ? 'Aún no tienes chats asignados'
                   : hasOperationalInboxViews && activeInboxView === 'closed'
@@ -1085,7 +1085,7 @@ function ConversationItem({
   return (
     <div
       className={cn(
-        'group border-border/55 hover:bg-muted/45 relative flex w-full border-b text-left transition-colors',
+        'group border-border/55 hover:bg-muted/45 relative flex w-full min-w-0 max-w-full overflow-hidden border-b text-left transition-colors',
         isActive && 'bg-primary-soft'
       )}
     >
