@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Header } from '@/components/layout/header';
+import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { PresenceHeartbeat } from '@/components/presence/presence-heartbeat';
 import { NexoraSupportChat } from '@/components/support/nexora-support-chat';
 import { NexoraBenefitNotifications } from '@/components/notifications/nexora-benefit-notifications';
@@ -26,7 +27,10 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   // Sidebar drawer state — only used on mobile. On lg+ the sidebar is
   // always visible and this stays at `false` (ignored by the component).
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const closeSidebar = useCallback(
+    () => setSidebarOpen(false),
+    [setSidebarOpen]
+  );
 
   useEffect(() => {
     if (!loading && !user) {
@@ -45,7 +49,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="subtle-grid bg-background flex h-screen items-center justify-center">
+      <div className="subtle-grid bg-background flex h-dvh items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <div className="border-primary/20 bg-primary/10 shadow-primary/20 relative flex size-14 items-center justify-center rounded-2xl border shadow-2xl">
             <div className="border-primary size-6 animate-spin rounded-full border-2 border-t-transparent" />
@@ -61,7 +65,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="nexora-workspace bg-background flex h-screen overflow-hidden">
+    <div className="nexora-workspace bg-background flex h-dvh min-h-0 w-full max-w-full overflow-hidden pt-[env(safe-area-inset-top)] md:pt-0">
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
@@ -73,15 +77,17 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
         totalUnread={totalUnread}
       />
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Header onOpenSidebar={() => setSidebarOpen(true)} />
+        <div className={cn(isWorkspaceCanvas && 'hidden md:block')}>
+          <Header onOpenSidebar={() => setSidebarOpen(true)} />
+        </div>
         {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
-        <main className="nexora-scrollbar flex-1 overflow-y-auto">
+        <main className="nexora-scrollbar min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
           <div
             className={cn(
               'mx-auto w-full',
               isWorkspaceCanvas
                 ? 'h-full max-w-none p-0'
-                : 'max-w-[1720px] px-5 py-6 sm:px-7 sm:py-8 lg:px-10 lg:py-10 xl:px-12 xl:py-11'
+                : 'max-w-[1720px] px-4 py-5 sm:px-7 sm:py-8 lg:px-10 lg:py-10 xl:px-12 xl:py-11'
             )}
           >
             {account?.subscription_status === 'past_due' && (
@@ -115,6 +121,11 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
             {children}
           </div>
         </main>
+        <MobileBottomNav
+          onOpenMore={() => setSidebarOpen(true)}
+          moreOpen={sidebarOpen}
+          totalUnread={totalUnread}
+        />
       </div>
     </div>
   );

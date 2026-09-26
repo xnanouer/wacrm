@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -16,6 +17,11 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/webp': 'webp',
 };
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGES_PER_ITEM = 50;
+
+interface ReorderBody {
+  orderedImageIds?: unknown;
+}
 
 export async function POST(
   request: Request,
@@ -114,6 +120,103 @@ export async function POST(
 
     return NextResponse.json({ image: data }, { status: 201 });
   } catch (error) {
+    return toErrorResponse(error);
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const ctx = await requireRole('agent');
+    const { id } = await context.params;
+    if (!isUuid(id)) {
+      return NextResponse.json(
+        { error: 'Vehículo inválido.' },
+        { status: 400 }
+      );
+    }
+
+    const limit = checkRateLimit(
+      `catalog-image-order:${ctx.userId}`,
+      RATE_LIMITS.adminAction
+    );
+    if (!limit.success) return rateLimitResponse(limit);
+
+    const body = (await request.json().catch(() => null)) as ReorderBody | null;
+    const orderedImageIds = body?.orderedImageIds;
+    if (
+      !Array.isArray(orderedImageIds) ||
+      orderedImageIds.length < 1 ||
+      orderedImageIds.length > MAX_IMAGES_PER_ITEM ||
+      !orderedImageIds.every(isUuid) ||
+      new Set(orderedImageIds).size !== orderedImageIds.length
+    ) {
+      return NextResponse.json(
+        { error: 'El orden de las fotografías no es válido.' },
+        { status: 400 }
+      );
+    }
+
+    const { data: canManage, error: permissionError } = await ctx.supabase.rpc(
+      'catalog_can_manage_item',
+      { target_item_id: id }
+    );
+    if (permissionError || canManage !== true) {
+      return NextResponse.json(
+        { error: 'No tienes permisos para modificar estas fotografías.' },
+        { status: 403 }
+      );
+    }
+
+    const admin = supabaseAdmin();
+    const { data: currentImages, error: imagesError } = await admin
+      .from('catalog_item_images')
+      .select('id')
+      .eq('account_id', ctx.accountId)
+      .eq('catalog_item_id', id);
+    if (imagesError) throw imagesError;
+
+    const currentIds = new Set(
+      (currentImages ?? []).map((image) => String(image.id))
+    );
+    if (
+      currentIds.size !== orderedImageIds.length ||
+      !orderedImageIds.every((imageId) => currentIds.has(imageId))
+    ) {
+      return NextResponse.json(
+        {
+          error: 'La galería cambió. Actualiza la ficha e inténtalo otra vez.',
+        },
+        { status: 409 }
+      );
+    }
+
+    const temporaryBase = 1_000_000_000 + crypto.randomInt(0, 100_000_000);
+    for (const [index, imageId] of orderedImageIds.entries()) {
+      const { error } = await admin
+        .from('catalog_item_images')
+        .update({ is_primary: false, sort_order: temporaryBase + index })
+        .eq('account_id', ctx.accountId)
+        .eq('catalog_item_id', id)
+        .eq('id', imageId);
+      if (error) throw error;
+    }
+
+    for (const [index, imageId] of orderedImageIds.entries()) {
+      const { error } = await admin
+        .from('catalog_item_images')
+        .update({ is_primary: index === 0, sort_order: index })
+        .eq('account_id', ctx.accountId)
+        .eq('catalog_item_id', id)
+        .eq('id', imageId);
+      if (error) throw error;
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[catalog] image reorder failed:', error);
     return toErrorResponse(error);
   }
 }

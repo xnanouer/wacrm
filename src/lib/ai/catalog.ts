@@ -825,6 +825,7 @@ export async function sendCatalogCandidates(args: {
           mediaUrl: buildPrivateMediaUrl('catalog-media', imagePath),
           contentText: imageIndex === 0 ? caption : null,
           senderType,
+          senderId: senderType === 'agent' ? actorUserId : null,
           pauseFlows: false,
         });
         firstResult ??= result;

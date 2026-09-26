@@ -114,6 +114,7 @@ export async function POST(request: Request) {
           typeof body.reply_to_message_id === 'string'
             ? body.reply_to_message_id
             : null,
+        senderId: ctx.createdBy,
       }
     );
 

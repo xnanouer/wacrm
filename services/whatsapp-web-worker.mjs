@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
@@ -14,6 +14,7 @@ loadEnvConfig(process.cwd());
 
 const { Client, LocalAuth, Message, MessageMedia } = whatsappWeb;
 const port = Number(process.env.WHATSAPP_WEB_SERVICE_PORT || 3001);
+const serviceHost = process.env.WHATSAPP_WEB_SERVICE_HOST || '127.0.0.1';
 const bridgeSecret =
   process.env.WHATSAPP_WEB_BRIDGE_SECRET ||
   (process.env.NODE_ENV !== 'production'
@@ -33,6 +34,7 @@ if (!bridgeSecret) {
 }
 
 const sessions = new Map();
+const cleanedChromiumProfiles = new Set();
 const PROFILE_PICTURE_CACHE_MS = 6 * 60 * 60 * 1000;
 const HIDDEN_PROFILE_PICTURE_CACHE_MS = 30 * 60 * 1000;
 const MAX_OUTBOUND_MEDIA_BYTES = 25 * 1024 * 1024;
@@ -210,8 +212,152 @@ function clientId(connectionId) {
   return connectionId.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function removeStaleChromiumProfileLocks(profileClientId) {
+  if (cleanedChromiumProfiles.has(profileClientId)) return;
+  cleanedChromiumProfiles.add(profileClientId);
+
+  const profilePath = path.join(sessionPath, `session-${profileClientId}`);
+  for (const lockName of [
+    'SingletonCookie',
+    'SingletonLock',
+    'SingletonSocket',
+  ]) {
+    const lockPath = path.join(profilePath, lockName);
+    try {
+      const stat = lstatSync(lockPath);
+      if (stat.isSymbolicLink() || stat.isFile()) unlinkSync(lockPath);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        console.warn(
+          `[whatsapp-web] Could not remove stale Chromium lock ${lockName}:`,
+          error instanceof Error ? error.message : error
+        );
+      }
+    }
+  }
+}
+
 function serializedMessageId(message) {
   return message?.id?.id || message?.id?._serialized || message?.id?.$1 || null;
+}
+
+function messageIdCandidates(message) {
+  const id = message?.id || message?._data?.id || {};
+  const remote =
+    id?.remote?._serialized || id?.remote?.$1 || id?.remote || null;
+  const reconstructed =
+    id?.id && remote
+      ? `${id.fromMe === true}_${String(remote)}_${String(id.id)}`
+      : null;
+
+  return [id?._serialized, id?.$1, reconstructed, id?.id]
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+function firstMessageText(...candidates) {
+  return (
+    candidates.find(
+      (candidate) =>
+        typeof candidate === 'string' && candidate.trim().length > 0
+    ) || ''
+  );
+}
+
+function isLikelyEncodedMediaPayload(value) {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!trimmed) return false;
+  if (/^data:(?:image|video|audio)\/[\w.+-]+;base64,/i.test(trimmed)) {
+    return true;
+  }
+
+  const compact = trimmed.replace(/\s+/g, '');
+  if (compact.length < 128) return false;
+  if (
+    /^(?:\/9j\/|iVBORw0KGgo|UklGR|R0lGOD|Qk[0-9A-Za-z+/]|AAAA[0-9A-Za-z+/]{4,40}(?:Z?XR5c|ZnR5c))/i.test(
+      compact
+    )
+  ) {
+    return true;
+  }
+  return (
+    compact.length >= 2_048 &&
+    /^[A-Za-z0-9+/_=-]+$/.test(compact) &&
+    compact.length % 4 <= 3
+  );
+}
+
+async function resolveMessageText(message) {
+  const immediate = firstMessageText(
+    message?.body,
+    message?._data?.body,
+    message?._data?.caption,
+    message?._data?.pollName,
+    message?._data?.eventName
+  );
+  if (immediate) return immediate;
+
+  const lookupIds = messageIdCandidates(message);
+  if (!lookupIds.length || !message?.client?.pupPage) return '';
+
+  // Current WhatsApp Web builds can expose the visible text on the live
+  // browser model while omitting it from `model.serialize()`. whatsapp-web.js
+  // then creates a Message whose public `body` is empty. Read only the known
+  // text fields from that live model before persisting the event.
+  return message.client.pupPage.evaluate(async (ids) => {
+    const { Msg } = window.require('WAWebCollections');
+    let model = null;
+    for (const id of ids) {
+      model = Msg.get(id) || null;
+      if (model) break;
+      try {
+        model = (await Msg.getMessagesById([id]))?.messages?.[0] || null;
+      } catch {
+        model = null;
+      }
+      if (model) break;
+    }
+
+    if (!model) {
+      const wanted = new Set(ids.map(String));
+      model = Msg.getModelsArray().find((candidate) => {
+        const id = candidate?.id || {};
+        return [id._serialized, id.$1, id.id]
+          .filter(Boolean)
+          .some((value) => wanted.has(String(value)));
+      });
+    }
+    if (!model) return '';
+
+    let serialized = null;
+    try {
+      serialized = model.serialize?.() || null;
+    } catch {
+      // The live model fields below are enough when serialization is broken.
+    }
+
+    const candidates = [
+      model.body,
+      model.caption,
+      model.pollName,
+      model.eventName,
+      model.textData?.body,
+      model.msgRowOpaqueData?.body,
+      model.msgRowOpaqueData?.caption,
+      model.message?.conversation,
+      model.message?.extendedTextMessage?.text,
+      serialized?.body,
+      serialized?.caption,
+      serialized?.pollName,
+      serialized?.eventName,
+    ];
+    return (
+      candidates.find(
+        (candidate) =>
+          typeof candidate === 'string' && candidate.trim().length > 0
+      ) || ''
+    );
+  }, lookupIds);
 }
 
 async function downloadMessageMedia(message) {
@@ -224,15 +370,50 @@ async function downloadMessageMedia(message) {
     // below reads that cache first and only decrypts directly when necessary.
   }
 
-  const messageId = serializedMessageId(message);
-  if (!messageId) return null;
+  const messageIds = messageIdCandidates(message);
+  if (!messageIds.length) return null;
 
-  return message.client.pupPage.evaluate(async (msgId) => {
+  return message.client.pupPage.evaluate(async (ids) => {
     const { Msg } = window.require('WAWebCollections');
-    const msg =
-      Msg.get(msgId) ||
-      (await Msg.getMessagesById([msgId]))?.messages?.[0] ||
-      null;
+    let msg = null;
+    for (const id of ids) {
+      msg = Msg.get(id) || null;
+      if (msg) break;
+      try {
+        msg = (await Msg.getMessagesById([id]))?.messages?.[0] || null;
+      } catch {
+        msg = null;
+      }
+      if (msg) break;
+    }
+
+    // WhatsApp Web 2.3000 moved the complete serialized key from
+    // `_serialized` to `$1` for many LID chats. Older whatsapp-web.js
+    // releases can therefore hand us only the short message id. Search the
+    // live collection by every known key before declaring the media absent.
+    if (!msg) {
+      const wanted = new Set(ids.map(String));
+      msg = Msg.getModelsArray().find((candidate) => {
+        const candidateId = candidate?.id || {};
+        const remote =
+          candidateId?.remote?._serialized ||
+          candidateId?.remote?.$1 ||
+          candidateId?.remote ||
+          null;
+        const reconstructed =
+          candidateId?.id && remote
+            ? `${candidateId.fromMe === true}_${String(remote)}_${String(candidateId.id)}`
+            : null;
+        return [
+          candidateId?._serialized,
+          candidateId?.$1,
+          reconstructed,
+          candidateId?.id,
+        ]
+          .filter(Boolean)
+          .some((value) => wanted.has(String(value)));
+      });
+    }
     if (!msg || !msg.mediaData) return null;
 
     let resolutionError = null;
@@ -312,7 +493,7 @@ async function downloadMessageMedia(message) {
       filename: msg.filename || null,
       filesize: msg.size || blob.size,
     };
-  }, messageId);
+  }, messageIds);
 }
 
 function messagePeerJid(message, deviceOutbound) {
@@ -458,7 +639,8 @@ async function forwardMessageToNexora(
   if (!phone) return;
   const avatarUrl = await resolveContactAvatarUrl(session, contact, peerJid);
 
-  let contentType = message.type || 'text';
+  const rawContentType = message.type || 'text';
+  let contentType = rawContentType;
   if (contentType === 'chat') contentType = 'text';
   if (contentType === 'ptt') contentType = 'audio';
   const isSticker = contentType === 'sticker';
@@ -469,6 +651,30 @@ async function forwardMessageToNexora(
     )
   ) {
     contentType = 'text';
+  }
+
+  let messageText = await resolveMessageText(message);
+  if (contentType !== 'text' && isLikelyEncodedMediaPayload(messageText)) {
+    messageText = '';
+  }
+  // Occasionally the add event runs a moment before WhatsApp hydrates the
+  // visible body on the browser model. Brief retries avoid storing a blank
+  // bubble without delaying normal messages.
+  if (contentType === 'text' && !messageText) {
+    for (const waitMs of [200, 500, 1_000, 2_000]) {
+      await delay(waitMs);
+      messageText = await resolveMessageText(message);
+      if (messageText) break;
+    }
+  }
+
+  // Service notifications and unrecovered encrypted placeholders do not
+  // contain customer-visible text. They must not become empty CRM messages.
+  if (contentType === 'text' && !messageText) {
+    console.warn(
+      `[whatsapp-web] Ignoring empty ${rawContentType} event until WhatsApp exposes its content.`
+    );
+    return;
   }
 
   let mediaUrl = null;
@@ -559,7 +765,7 @@ async function forwardMessageToNexora(
     text:
       contentType === 'audio'
         ? ''
-        : message.body || mediaFilename || fallbackText,
+        : messageText || mediaFilename || fallbackText,
     mediaUrl,
     mediaType,
     isSticker,
@@ -589,15 +795,15 @@ async function forwardMessageToNexora(
   }
 }
 
-async function repairMissingMediaMessages(accountId, connectionId, session) {
+async function repairMissingMessageContent(accountId, connectionId, session) {
   const db = database();
   if (!db || session.state.status !== 'connected') return;
 
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await db
+  const { data: mediaRows, error: mediaError } = await db
     .from('messages')
     .select(
-      'message_id, conversation:conversations!inner(account_id, whatsapp_config_id)'
+      'message_id, conversation:conversations!inner(account_id, whatsapp_config_id, external_participant_id)'
     )
     .is('media_url', null)
     .in('content_type', ['image', 'video', 'document', 'audio'])
@@ -606,9 +812,24 @@ async function repairMissingMediaMessages(accountId, connectionId, session) {
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(100);
-  if (error) throw error;
+  if (mediaError) throw mediaError;
 
-  const messageIds = [...new Set((data ?? []).map((row) => row.message_id))]
+  const { data: textRows, error: textError } = await db
+    .from('messages')
+    .select(
+      'message_id, conversation:conversations!inner(account_id, whatsapp_config_id, external_participant_id)'
+    )
+    .is('content_text', null)
+    .eq('content_type', 'text')
+    .eq('conversation.account_id', accountId)
+    .eq('conversation.whatsapp_config_id', connectionId)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (textError) throw textError;
+
+  const rows = [...(mediaRows ?? []), ...(textRows ?? [])];
+  const messageIds = [...new Set(rows.map((row) => row.message_id))]
     .filter(Boolean)
     .slice(0, 100);
   if (!messageIds.length) return;
@@ -628,15 +849,56 @@ async function repairMissingMediaMessages(accountId, connectionId, session) {
       try {
         serialized.push(window.WWebJS.getMessageModel(model));
       } catch {
-        // A malformed service message should not block media recovery.
+        // A malformed service message should not block content recovery.
       }
     }
     return serialized;
   }, messageIds);
 
-  for (const model of models) {
-    const message = new Message(session.client, model);
-    if (!message.hasMedia) continue;
+  const wantedIds = new Set(messageIds.map(String));
+  const messages = models.map((model) => new Message(session.client, model));
+  const resolvedIds = new Set(
+    messages.flatMap((message) =>
+      messageIdCandidates(message)
+        .map(String)
+        .filter((id) => wantedIds.has(id))
+    )
+  );
+  const participantJids = [
+    ...new Set(
+      rows
+        .map((row) => {
+          const conversation = Array.isArray(row.conversation)
+            ? row.conversation[0]
+            : row.conversation;
+          return conversation?.external_participant_id;
+        })
+        .filter((jid) =>
+          typeof jid === 'string' ? /@(c\.us|lid)$/i.test(jid) : false
+        )
+    ),
+  ];
+
+  if (resolvedIds.size < wantedIds.size) {
+    for (const participantJid of participantJids) {
+      const chat = await session.client
+        .getChatById(participantJid)
+        .catch(() => null);
+      const history = await chat?.fetchMessages({ limit: 100 }).catch(() => []);
+      for (const message of history ?? []) {
+        const ids = messageIdCandidates(message).map(String);
+        const matchedId = ids.find(
+          (id) => wantedIds.has(id) && !resolvedIds.has(id)
+        );
+        if (!matchedId) continue;
+        messages.push(message);
+        ids.forEach((id) => resolvedIds.add(id));
+      }
+      if (resolvedIds.size >= wantedIds.size) break;
+    }
+  }
+
+  for (const message of messages) {
     await forwardMessageToNexora(
       accountId,
       connectionId,
@@ -935,12 +1197,21 @@ function stopDeviceMessageSync(session) {
 function createSession(accountId, connectionId, useLegacyClientId = false) {
   const state = initialState();
   const executablePath = chromeExecutable();
+  const profileClientId = clientId(
+    useLegacyClientId ? accountId : connectionId
+  );
+  // A container replacement changes Chromium's hostname. If it was stopped
+  // while the browser still held its singleton symlinks, the next container
+  // refuses to open the otherwise valid WhatsApp profile. At process startup
+  // no Chromium owns this profile yet, so removing only these ephemeral locks
+  // preserves the authenticated session and makes deployments self-healing.
+  removeStaleChromiumProfileLocks(profileClientId);
   const client = new Client({
     authStrategy: new LocalAuth({
       // Before multi-number support the persisted profile used accountId.
       // Keep that identifier for the first/default connection so an existing
       // linked device is restored without forcing the company to scan again.
-      clientId: clientId(useLegacyClientId ? accountId : connectionId),
+      clientId: profileClientId,
       dataPath: sessionPath,
     }),
     puppeteer: {
@@ -1046,27 +1317,29 @@ function createSession(accountId, connectionId, useLegacyClientId = false) {
         });
     }
     startDeviceMessageSync(accountId, connectionId, session);
-    const initialMediaRepair = setTimeout(() => {
-      void repairMissingMediaMessages(accountId, connectionId, session).catch(
+    const initialMessageRepair = setTimeout(() => {
+      void repairMissingMessageContent(accountId, connectionId, session).catch(
         (error) => {
           console.error(
-            `[whatsapp-web:${accountId}:${connectionId}] media repair failed:`,
+            `[whatsapp-web:${accountId}:${connectionId}] message repair failed:`,
             error
           );
         }
       );
     }, 5_000);
-    initialMediaRepair.unref?.();
+    initialMessageRepair.unref?.();
     session.mediaRepairTimer = setInterval(
       () => {
-        void repairMissingMediaMessages(accountId, connectionId, session).catch(
-          (error) => {
-            console.error(
-              `[whatsapp-web:${accountId}:${connectionId}] media repair failed:`,
-              error
-            );
-          }
-        );
+        void repairMissingMessageContent(
+          accountId,
+          connectionId,
+          session
+        ).catch((error) => {
+          console.error(
+            `[whatsapp-web:${accountId}:${connectionId}] message repair failed:`,
+            error
+          );
+        });
       },
       2 * 60 * 1000
     );
@@ -1507,8 +1780,10 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`Nexora WhatsApp QR service ready on http://127.0.0.1:${port}`);
+server.listen(port, serviceHost, () => {
+  console.log(
+    `Nexora WhatsApp QR service ready on http://${serviceHost}:${port}`
+  );
   void restorePersistedSessions();
 });
 

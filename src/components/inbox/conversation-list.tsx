@@ -1,6 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  type MouseEvent,
+} from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   CONVERSATION_SELECT,
@@ -21,12 +28,14 @@ import {
   ChevronDown,
   ClockAlert,
   Inbox,
+  ListFilter,
+  Loader2,
+  LockKeyhole,
   MessagesSquare,
   Search,
   Smartphone,
   UserRoundCheck,
   UsersRound,
-  X,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Input } from '@/components/ui/input';
@@ -37,6 +46,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/hooks/use-auth';
@@ -48,6 +62,7 @@ import {
   resolveConversationChannel,
 } from '@/lib/channels/channel-meta';
 import { getConversationAiIndicator } from '@/lib/ai/conversation-state';
+import { toast } from 'sonner';
 import {
   getWaitingMinutes,
   isConversationAwaitingReply,
@@ -56,6 +71,7 @@ import {
 interface ConversationListProps {
   activeConversationId: string | null;
   onSelect: (conversation: Conversation) => void;
+  onAccept: (conversation: Conversation) => Promise<Conversation>;
   conversations: Conversation[];
   onConversationsLoaded: (conversations: Conversation[]) => void;
   /**
@@ -95,6 +111,7 @@ const ASSIGNMENT_OPTIONS: { label: string; value: AssignmentFilter }[] = [
 export function ConversationList({
   activeConversationId,
   onSelect,
+  onAccept,
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
@@ -124,6 +141,9 @@ export function ConversationList({
   const [assignmentFilter, setAssignmentFilter] =
     useState<AssignmentFilter>('all');
   const [loading, setLoading] = useState(true);
+  const [acceptingConversationId, setAcceptingConversationId] = useState<
+    string | null
+  >(null);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   // Contact-based filters (issue #272). Tags use OR logic (a conversation
   // matches if its contact carries any selected tag), consistent with
@@ -271,11 +291,13 @@ export function ConversationList({
     return Array.from(map.values());
   }, [conversations]);
 
-  const tagsById = useMemo(() => {
-    const m = new Map<string, Tag>();
-    for (const t of tags) m.set(t.id, t);
-    return m;
-  }, [tags]);
+  const agentNamesById = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const profile of profiles) {
+      names.set(profile.user_id, profile.full_name || profile.email);
+    }
+    return names;
+  }, [profiles]);
 
   const inboxViewCounts = useMemo(() => {
     const userId = user?.id;
@@ -341,7 +363,6 @@ export function ConversationList({
       activeInboxView === 'queue' &&
       wasJustAcceptedByCurrentUser
     ) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInboxView('mine');
     }
   }, [
@@ -470,12 +491,20 @@ export function ConversationList({
     setChannelFilter('all');
   }, []);
 
-  const hasContactFilters =
-    selectedTagIds.length > 0 ||
-    selectedCompany !== null ||
-    selectedDepartmentId !== null ||
-    selectedWhatsappId !== null ||
-    channelFilter !== 'all';
+  const clearAllFilters = useCallback(() => {
+    clearContactFilters();
+    setFilter('all');
+    setAssignmentFilter('all');
+  }, [clearContactFilters]);
+
+  const activeSecondaryFilterCount =
+    Number(filter !== 'all') +
+    Number(channelFilter !== 'all') +
+    Number(assignmentFilter !== 'all') +
+    Number(selectedDepartmentId !== null) +
+    Number(selectedWhatsappId !== null) +
+    selectedTagIds.length +
+    Number(selectedCompany !== null);
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -491,6 +520,27 @@ export function ConversationList({
     [onSelect]
   );
 
+  const handleAccept = useCallback(
+    async (conversation: Conversation) => {
+      if (acceptingConversationId) return;
+      setAcceptingConversationId(conversation.id);
+      try {
+        const accepted = await onAccept(conversation);
+        toast.success(
+          'Lead aceptado y protegido. Si el cliente vuelve, regresará a tu bandeja.'
+        );
+        onSelect(accepted);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'No se pudo aceptar el lead'
+        );
+      } finally {
+        setAcceptingConversationId(null);
+      }
+    },
+    [acceptingConversationId, onAccept, onSelect]
+  );
+
   const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
   const activeAssignment =
     ASSIGNMENT_OPTIONS.find((o) => o.value === assignmentFilter) ??
@@ -502,32 +552,33 @@ export function ConversationList({
 
   return (
     // w-full on mobile so the list occupies the whole viewport when it's
-    // the single pane showing; fixed 320px on desktop where it shares the
+    // the single pane showing; fixed width on desktop where it shares the
     // row with the thread + contact sidebar.
-    <div className="border-border/60 bg-card/95 flex h-full w-full flex-col border-r backdrop-blur-xl lg:w-[25rem] xl:w-[27rem]">
-      <div className="border-border/60 border-b px-6 pt-6 pb-5">
-        <div className="mb-4 flex items-start justify-between gap-4">
+    <div className="border-border/60 bg-card/95 flex h-full w-full min-w-0 flex-col overflow-hidden border-r backdrop-blur-xl lg:w-[25rem] xl:w-[27rem]">
+      <div className="border-border/60 border-b px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className="mb-2.5 flex items-center justify-between gap-3 sm:mb-3">
           <div>
             <div className="flex items-center gap-2">
-              <Inbox className="text-primary size-5" />
-              <h1 className="text-foreground text-xl font-semibold tracking-[-0.03em]">
+              <Inbox className="text-primary size-4" />
+              <h1 className="text-foreground text-base font-semibold tracking-[-0.03em] sm:text-lg">
                 Bandeja de atención
               </h1>
             </div>
-            <p className="text-muted-foreground mt-1 text-sm">
+            <p className="text-muted-foreground mt-0.5 pl-6 text-xs">
               {conversations.length} conversación
               {conversations.length === 1 ? '' : 'es'} en total
             </p>
           </div>
-          <span className="bg-primary-soft text-primary rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-wide uppercase">
-            En vivo
+          <span className="text-primary inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold tracking-wide uppercase">
+            <span className="size-1.5 rounded-full bg-emerald-500" />
+            <span className="hidden sm:inline">En vivo</span>
           </span>
         </div>
 
         {hasOperationalInboxViews ? (
           <div
             className={cn(
-              'bg-muted/70 mb-4 grid gap-1 rounded-xl p-1',
+              'bg-muted/70 mb-2.5 grid min-w-0 gap-0.5 overflow-hidden rounded-lg p-0.5 sm:mb-3',
               isAdminInbox ? 'grid-cols-4' : 'grid-cols-3'
             )}
           >
@@ -550,7 +601,7 @@ export function ConversationList({
                 type="button"
                 onClick={() => handleInboxViewChange(value)}
                 className={cn(
-                  'flex min-w-0 items-center justify-center gap-1 rounded-lg px-2 py-2 text-xs font-medium transition-colors',
+                  'flex h-9 min-w-0 items-center justify-center gap-1 rounded-md px-1 text-[11px] font-medium transition-colors sm:h-auto sm:px-1.5 sm:py-1.5',
                   activeInboxView === value
                     ? 'bg-card text-primary shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
@@ -559,7 +610,7 @@ export function ConversationList({
                 <span className="truncate">{label}</span>
                 <span
                   className={cn(
-                    'flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px]',
+                    'flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px]',
                     value === 'queue' && count > 0
                       ? 'bg-amber-500/15 text-amber-500'
                       : 'bg-background text-muted-foreground'
@@ -572,327 +623,356 @@ export function ConversationList({
           </div>
         ) : null}
 
-        <div className="relative">
-          <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-          <Input
-            value={search}
-            onChange={handleSearchChange}
-            placeholder="Buscar por nombre, teléfono o mensaje"
-            aria-label="Buscar conversaciones"
-            className="border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary/50 h-12 rounded-2xl pl-11 text-base"
-          />
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm">
-              <MessagesSquare className="size-4" />
-              {channelFilter === 'all'
-                ? 'Todos los canales'
-                : getChannelMeta(channelFilter).label}
-              <ChevronDown className="size-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              <DropdownMenuItem
-                onClick={() => setChannelFilter('all')}
-                className={cn(
-                  'text-sm',
-                  channelFilter === 'all'
-                    ? 'text-primary'
-                    : 'text-popover-foreground'
-                )}
-              >
-                Todos los canales
-              </DropdownMenuItem>
-              {CHANNEL_OPTIONS.map((option) => (
-                <DropdownMenuItem
-                  key={option.value}
-                  onClick={() => {
-                    setChannelFilter(option.value);
-                    if (option.value !== 'whatsapp') {
-                      setSelectedWhatsappId(null);
-                    }
-                  }}
-                  className={cn(
-                    'text-sm',
-                    channelFilter === option.value
-                      ? 'text-primary'
-                      : 'text-popover-foreground'
-                  )}
-                >
-                  <ChannelBadge channel={option.value} className="mr-1" />
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm">
-              {activeFilter?.label ?? 'All'}
-              <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              {FILTER_OPTIONS.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.value}
-                  onClick={() => setFilter(opt.value)}
-                  className={cn(
-                    'text-sm',
-                    filter === opt.value
-                      ? 'text-primary'
-                      : 'text-popover-foreground'
-                  )}
-                >
-                  {opt.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {!isAgentInbox ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm">
-                <UsersRound className="size-4" />
-                <span className="max-w-28 truncate">
-                  {activeAssignmentLabel}
-                </span>
-                <ChevronDown className="size-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="border-border bg-popover"
-              >
-                {ASSIGNMENT_OPTIONS.map((opt) => (
-                  <DropdownMenuItem
-                    key={opt.value}
-                    onClick={() => setAssignmentFilter(opt.value)}
-                    className={cn(
-                      'text-sm',
-                      assignmentFilter === opt.value
-                        ? 'text-primary'
-                        : 'text-popover-foreground'
-                    )}
-                  >
-                    {opt.label}
-                  </DropdownMenuItem>
-                ))}
-                {profiles.map((profile) => (
-                  <DropdownMenuItem
-                    key={profile.user_id}
-                    onClick={() => setAssignmentFilter(profile.user_id)}
-                    className={cn(
-                      'text-sm',
-                      assignmentFilter === profile.user_id
-                        ? 'text-primary'
-                        : 'text-popover-foreground'
-                    )}
-                  >
-                    {profile.full_name || profile.email}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm">
-              <Building2 className="size-4" />
-              <span className="max-w-28 truncate">
-                {departments.find((item) => item.id === selectedDepartmentId)
-                  ?.name ?? 'Departamento'}
-              </span>
-              <ChevronDown className="size-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="border-border bg-popover"
-            >
-              <DropdownMenuItem onClick={() => setSelectedDepartmentId(null)}>
-                Todos los departamentos
-              </DropdownMenuItem>
-              {departments.map((department) => (
-                <DropdownMenuItem
-                  key={department.id}
-                  onClick={() => setSelectedDepartmentId(department.id)}
-                >
-                  <span
-                    className="mr-2 size-2 rounded-full"
-                    style={{ backgroundColor: department.color }}
-                  />
-                  {department.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {(channelFilter === 'all' || channelFilter === 'whatsapp') && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm">
-                <Smartphone className="size-4" />
-                <span className="max-w-24 truncate">
-                  {whatsappNumbers.find(
-                    (item) => item.id === selectedWhatsappId
-                  )?.connection_name ?? 'Número'}
-                </span>
-                <ChevronDown className="size-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="border-border bg-popover"
-              >
-                <DropdownMenuItem onClick={() => setSelectedWhatsappId(null)}>
-                  Todos los números
-                </DropdownMenuItem>
-                {whatsappNumbers.map((number) => (
-                  <DropdownMenuItem
-                    key={number.id}
-                    onClick={() => setSelectedWhatsappId(number.id)}
-                  >
-                    {number.connection_name ||
-                      number.display_name ||
-                      number.display_phone ||
-                      number.phone_number_id}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {tags.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  'border-border bg-background hover:bg-muted inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm',
-                  selectedTagIds.length > 0
-                    ? 'text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                Tags
-                {selectedTagIds.length > 0 && (
-                  <span className="bg-primary text-primary-foreground flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold">
-                    {selectedTagIds.length}
-                  </span>
-                )}
-                <ChevronDown className="h-3 w-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="border-border bg-popover max-h-64 w-56"
-              >
-                {tags.map((t) => (
-                  <DropdownMenuCheckboxItem
-                    key={t.id}
-                    checked={selectedTagIds.includes(t.id)}
-                    onCheckedChange={() => toggleTag(t.id)}
-                    className="text-popover-foreground text-sm"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: t.color }}
-                      />
-                      <span className="truncate">{t.name}</span>
-                    </span>
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {companies.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  'border-border bg-background hover:bg-muted inline-flex h-10 max-w-44 items-center justify-center gap-2 rounded-xl border px-3 text-sm',
-                  selectedCompany
-                    ? 'text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <span className="truncate">{selectedCompany ?? 'Company'}</span>
-                <ChevronDown className="h-3 w-3 shrink-0" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="border-border bg-popover max-h-64 w-56"
-              >
-                <DropdownMenuItem
-                  onClick={() => setSelectedCompany(null)}
-                  className={cn(
-                    'text-sm',
-                    selectedCompany === null
-                      ? 'text-primary'
-                      : 'text-popover-foreground'
-                  )}
-                >
-                  All companies
-                </DropdownMenuItem>
-                {companies.map((co) => (
-                  <DropdownMenuItem
-                    key={co}
-                    onClick={() => setSelectedCompany(co)}
-                    className={cn(
-                      'text-sm',
-                      selectedCompany === co
-                        ? 'text-primary'
-                        : 'text-popover-foreground'
-                    )}
-                  >
-                    <span className="truncate">{co}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-
-        {hasContactFilters && (
-          <div className="mt-2 flex flex-wrap items-center gap-1">
-            {selectedTagIds.map((id) => {
-              const tag = tagsById.get(id);
-              return (
-                <button
-                  key={id}
-                  onClick={() => toggleTag(id)}
-                  className="bg-muted text-foreground hover:bg-muted/70 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]"
-                >
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{
-                      backgroundColor: tag?.color ?? 'var(--muted-foreground)',
-                    }}
-                  />
-                  <span className="max-w-24 truncate">
-                    {tag?.name ?? 'Tag'}
-                  </span>
-                  <X className="h-3 w-3" />
-                </button>
-              );
-            })}
-            {selectedCompany && (
-              <button
-                onClick={() => setSelectedCompany(null)}
-                className="bg-muted text-foreground hover:bg-muted/70 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px]"
-              >
-                <span className="max-w-24 truncate">{selectedCompany}</span>
-                <X className="h-3 w-3" />
-              </button>
-            )}
-            <button
-              onClick={clearContactFilters}
-              className="text-muted-foreground hover:text-foreground px-1 text-[11px]"
-            >
-              Limpiar
-            </button>
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="text-muted-foreground absolute top-1/2 left-3 size-3.5 -translate-y-1/2" />
+            <Input
+              value={search}
+              onChange={handleSearchChange}
+              placeholder="Buscar leads..."
+              aria-label="Buscar conversaciones por nombre, teléfono o mensaje"
+              className="border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary/50 h-10 rounded-xl pr-3 pl-9 text-sm"
+            />
           </div>
-        )}
+
+          <Popover>
+            <PopoverTrigger
+              className={cn(
+                'border-border bg-background hover:bg-muted inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium',
+                activeSecondaryFilterCount > 0
+                  ? 'text-primary border-primary/35 bg-primary/5'
+                  : 'text-foreground'
+              )}
+              aria-label="Abrir filtros de la bandeja"
+            >
+              <ListFilter className="size-4" />
+              <span className="hidden sm:inline">Filtros</span>
+              {activeSecondaryFilterCount > 0 && (
+                <span className="bg-primary text-primary-foreground flex size-4 items-center justify-center rounded-full text-[9px] font-bold">
+                  {activeSecondaryFilterCount > 9
+                    ? '9+'
+                    : activeSecondaryFilterCount}
+                </span>
+              )}
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="border-border w-[min(22rem,calc(100vw-2rem))] gap-3 p-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Filtrar bandeja</p>
+                  <p className="text-muted-foreground text-xs">
+                    Combina los criterios que necesites.
+                  </p>
+                </div>
+                {activeSecondaryFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="text-primary hover:text-primary/80 text-xs font-semibold"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm">
+                    <MessagesSquare className="size-4" />
+                    {channelFilter === 'all'
+                      ? 'Todos los canales'
+                      : getChannelMeta(channelFilter).label}
+                    <ChevronDown className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    className="border-border bg-popover"
+                  >
+                    <DropdownMenuItem
+                      onClick={() => setChannelFilter('all')}
+                      className={cn(
+                        'text-sm',
+                        channelFilter === 'all'
+                          ? 'text-primary'
+                          : 'text-popover-foreground'
+                      )}
+                    >
+                      Todos los canales
+                    </DropdownMenuItem>
+                    {CHANNEL_OPTIONS.map((option) => (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onClick={() => {
+                          setChannelFilter(option.value);
+                          if (option.value !== 'whatsapp') {
+                            setSelectedWhatsappId(null);
+                          }
+                        }}
+                        className={cn(
+                          'text-sm',
+                          channelFilter === option.value
+                            ? 'text-primary'
+                            : 'text-popover-foreground'
+                        )}
+                      >
+                        <ChannelBadge channel={option.value} className="mr-1" />
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm">
+                    {activeFilter?.label ?? 'All'}
+                    <ChevronDown className="h-3 w-3" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    className="border-border bg-popover"
+                  >
+                    {FILTER_OPTIONS.map((opt) => (
+                      <DropdownMenuItem
+                        key={opt.value}
+                        onClick={() => setFilter(opt.value)}
+                        className={cn(
+                          'text-sm',
+                          filter === opt.value
+                            ? 'text-primary'
+                            : 'text-popover-foreground'
+                        )}
+                      >
+                        {opt.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {!isAgentInbox ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm">
+                      <UsersRound className="size-4" />
+                      <span className="max-w-28 truncate">
+                        {activeAssignmentLabel}
+                      </span>
+                      <ChevronDown className="size-3" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="border-border bg-popover"
+                    >
+                      {ASSIGNMENT_OPTIONS.map((opt) => (
+                        <DropdownMenuItem
+                          key={opt.value}
+                          onClick={() => setAssignmentFilter(opt.value)}
+                          className={cn(
+                            'text-sm',
+                            assignmentFilter === opt.value
+                              ? 'text-primary'
+                              : 'text-popover-foreground'
+                          )}
+                        >
+                          {opt.label}
+                        </DropdownMenuItem>
+                      ))}
+                      {profiles.map((profile) => (
+                        <DropdownMenuItem
+                          key={profile.user_id}
+                          onClick={() => setAssignmentFilter(profile.user_id)}
+                          className={cn(
+                            'text-sm',
+                            assignmentFilter === profile.user_id
+                              ? 'text-primary'
+                              : 'text-popover-foreground'
+                          )}
+                        >
+                          {profile.full_name || profile.email}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm">
+                    <Building2 className="size-4" />
+                    <span className="max-w-28 truncate">
+                      {departments.find(
+                        (item) => item.id === selectedDepartmentId
+                      )?.name ?? 'Departamento'}
+                    </span>
+                    <ChevronDown className="size-3" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    className="border-border bg-popover"
+                  >
+                    <DropdownMenuItem
+                      onClick={() => setSelectedDepartmentId(null)}
+                    >
+                      Todos los departamentos
+                    </DropdownMenuItem>
+                    {departments.map((department) => (
+                      <DropdownMenuItem
+                        key={department.id}
+                        onClick={() => setSelectedDepartmentId(department.id)}
+                      >
+                        <span
+                          className="mr-2 size-2 rounded-full"
+                          style={{ backgroundColor: department.color }}
+                        />
+                        {department.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {(channelFilter === 'all' || channelFilter === 'whatsapp') && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm">
+                      <Smartphone className="size-4" />
+                      <span className="max-w-24 truncate">
+                        {whatsappNumbers.find(
+                          (item) => item.id === selectedWhatsappId
+                        )?.connection_name ?? 'Número'}
+                      </span>
+                      <ChevronDown className="size-3" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="border-border bg-popover"
+                    >
+                      <DropdownMenuItem
+                        onClick={() => setSelectedWhatsappId(null)}
+                      >
+                        Todos los números
+                      </DropdownMenuItem>
+                      {whatsappNumbers.map((number) => (
+                        <DropdownMenuItem
+                          key={number.id}
+                          onClick={() => setSelectedWhatsappId(number.id)}
+                        >
+                          {number.connection_name ||
+                            number.display_name ||
+                            number.display_phone ||
+                            number.phone_number_id}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {tags.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      className={cn(
+                        'border-border bg-background hover:bg-muted inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm',
+                        selectedTagIds.length > 0
+                          ? 'text-primary'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      Tags
+                      {selectedTagIds.length > 0 && (
+                        <span className="bg-primary text-primary-foreground flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold">
+                          {selectedTagIds.length}
+                        </span>
+                      )}
+                      <ChevronDown className="h-3 w-3" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="border-border bg-popover max-h-64 w-56"
+                    >
+                      {tags.map((t) => (
+                        <DropdownMenuCheckboxItem
+                          key={t.id}
+                          checked={selectedTagIds.includes(t.id)}
+                          onCheckedChange={() => toggleTag(t.id)}
+                          className="text-popover-foreground text-sm"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: t.color }}
+                            />
+                            <span className="truncate">{t.name}</span>
+                          </span>
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+
+                {companies.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      className={cn(
+                        'border-border bg-background hover:bg-muted inline-flex h-10 max-w-44 items-center justify-center gap-2 rounded-xl border px-3 text-sm',
+                        selectedCompany
+                          ? 'text-primary'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <span className="truncate">
+                        {selectedCompany ?? 'Empresa'}
+                      </span>
+                      <ChevronDown className="h-3 w-3 shrink-0" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="border-border bg-popover max-h-64 w-56"
+                    >
+                      <DropdownMenuItem
+                        onClick={() => setSelectedCompany(null)}
+                        className={cn(
+                          'text-sm',
+                          selectedCompany === null
+                            ? 'text-primary'
+                            : 'text-popover-foreground'
+                        )}
+                      >
+                        Todas las empresas
+                      </DropdownMenuItem>
+                      {companies.map((co) => (
+                        <DropdownMenuItem
+                          key={co}
+                          onClick={() => setSelectedCompany(co)}
+                          className={cn(
+                            'text-sm',
+                            selectedCompany === co
+                              ? 'text-primary'
+                              : 'text-popover-foreground'
+                          )}
+                        >
+                          <span className="truncate">{co}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+
+              {activeSecondaryFilterCount > 0 && (
+                <div className="border-border bg-muted/45 flex items-center justify-between rounded-lg border px-2.5 py-2">
+                  <span className="text-muted-foreground text-xs">
+                    {activeSecondaryFilterCount} filtro
+                    {activeSecondaryFilterCount === 1 ? '' : 's'} activo
+                    {activeSecondaryFilterCount === 1 ? '' : 's'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearAllFilters}
+                    className="text-primary text-xs font-semibold"
+                  >
+                    Restablecer
+                  </button>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {/* Conversation Items.
@@ -931,6 +1011,18 @@ export function ConversationList({
                 conversation={conv}
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
+                onAccept={handleAccept}
+                canAccept={
+                  hasOperationalInboxViews &&
+                  conv.status === 'pending' &&
+                  !conv.assigned_agent_id
+                }
+                isAccepting={acceptingConversationId === conv.id}
+                assignedAgentName={
+                  conv.assigned_agent_id
+                    ? agentNamesById.get(conv.assigned_agent_id)
+                    : undefined
+                }
                 currentTime={currentTime}
               />
             ))}
@@ -945,6 +1037,10 @@ interface ConversationItemProps {
   conversation: Conversation;
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
+  onAccept: (conversation: Conversation) => Promise<void>;
+  canAccept: boolean;
+  isAccepting: boolean;
+  assignedAgentName?: string;
   currentTime: number;
 }
 
@@ -952,9 +1048,14 @@ function ConversationItem({
   conversation,
   isActive,
   onSelect,
+  onAccept,
+  canAccept,
+  isAccepting,
+  assignedAgentName,
   currentTime,
 }: ConversationItemProps) {
   const contact = conversation.contact;
+  const contactTags = contact?.tags ?? [];
   const displayName = contact?.name || contact?.phone || 'Unknown';
   const initials = displayName.charAt(0).toUpperCase();
   const aiIndicator = getConversationAiIndicator(conversation);
@@ -967,6 +1068,14 @@ function ConversationItem({
     onSelect(conversation);
   }, [onSelect, conversation]);
 
+  const handleAcceptClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      void onAccept(conversation);
+    },
+    [conversation, onAccept]
+  );
+
   const timeAgo = conversation.last_message_at
     ? formatDistanceToNow(new Date(conversation.last_message_at), {
         addSuffix: false,
@@ -974,115 +1083,175 @@ function ConversationItem({
     : '';
 
   return (
-    <button
-      onClick={handleClick}
+    <div
       className={cn(
-        'group border-border/55 hover:bg-muted/45 relative flex w-full items-start gap-3.5 border-b px-5 py-4.5 text-left transition-colors',
+        'group border-border/55 hover:bg-muted/45 relative flex w-full border-b text-left transition-colors',
         isActive && 'bg-primary-soft'
       )}
     >
       {isActive && (
         <span className="bg-primary absolute inset-y-2 left-0 w-0.5 rounded-r-full" />
       )}
-      {/* Avatar */}
-      <Avatar className="bg-muted text-foreground ring-border size-12 text-base font-semibold ring-1">
-        {contact?.avatar_url ? (
-          <AvatarImage src={contact.avatar_url} alt={displayName} />
-        ) : null}
-        <AvatarFallback className="text-foreground font-semibold">
-          {initials}
-        </AvatarFallback>
-        {conversation.unread_count > 0 && (
-          <span className="border-card bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 px-1 text-[10px] font-bold">
-            {conversation.unread_count > 99 ? '99+' : conversation.unread_count}
-          </span>
-        )}
-      </Avatar>
-
-      {/* Content */}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-foreground truncate text-[15px] font-semibold">
-            {displayName}
-          </span>
-          <span className="text-muted-foreground shrink-0 text-xs">
-            {timeAgo}
-          </span>
-        </div>
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <p className="text-muted-foreground truncate text-sm leading-6">
-            {conversation.last_message_text || 'Aún no hay mensajes'}
-          </p>
-        </div>
-        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-          {awaitingReply ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
-              <ClockAlert className="size-2.5" />
-              {waitingMinutes < 60
-                ? `Más de ${waitingMinutes} min sin respuesta`
-                : `${Math.floor(waitingMinutes / 60)} h sin respuesta`}
-            </span>
+      <button
+        type="button"
+        onClick={handleClick}
+        className="focus-visible:ring-primary/40 flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset sm:gap-3.5 sm:px-5 sm:py-4.5"
+        aria-label={`Abrir conversación con ${displayName}`}
+      >
+        {/* Avatar */}
+        <Avatar className="bg-muted text-foreground ring-border size-11 text-sm font-semibold ring-1 sm:size-12 sm:text-base">
+          {contact?.avatar_url ? (
+            <AvatarImage src={contact.avatar_url} alt={displayName} />
           ) : null}
-          <ChannelBadge channel={conversation.channel} compact />
-          {conversation.channel === 'whatsapp' &&
-            conversation.whatsapp_config?.connection_name && (
-              <span
-                className="border-primary/25 bg-primary/8 text-primary inline-flex max-w-32 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-                title={
-                  conversation.whatsapp_config.display_phone
-                    ? `${conversation.whatsapp_config.connection_name} · +${conversation.whatsapp_config.display_phone}`
-                    : conversation.whatsapp_config.connection_name
-                }
-              >
-                <span className="truncate">
-                  {conversation.whatsapp_config.connection_name}
-                </span>
-              </span>
-            )}
-          <TicketStatusBadge status={conversation.status} compact />
-          {aiIndicator && (
-            <span className="border-primary/30 bg-primary/10 text-primary inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold">
-              <Bot className="size-2.5" />
-              {aiIndicator.label}
+          <AvatarFallback className="text-foreground font-semibold">
+            {initials}
+          </AvatarFallback>
+          {conversation.unread_count > 0 && (
+            <span className="border-card bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 px-1 text-[10px] font-bold">
+              {conversation.unread_count > 99
+                ? '99+'
+                : conversation.unread_count}
             </span>
           )}
-          {(contact?.tags ?? []).map((tag) => (
-            <span
-              key={tag.id}
-              className="inline-flex max-w-32 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-              style={{
-                backgroundColor: `${tag.color}18`,
-                borderColor: `${tag.color}55`,
-                color: tag.color,
-              }}
-              title={tag.name}
-            >
+        </Avatar>
+
+        {/* Content */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-foreground truncate text-[15px] font-semibold">
+              {displayName}
+            </span>
+            <span className="text-muted-foreground shrink-0 text-xs">
+              {timeAgo}
+            </span>
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <p className="text-muted-foreground truncate text-sm leading-6">
+              {conversation.last_message_text || 'Aún no hay mensajes'}
+            </p>
+          </div>
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">
+            {awaitingReply ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                <ClockAlert className="size-2.5" />
+                <span className="sm:hidden">
+                  {waitingMinutes < 60
+                    ? `${waitingMinutes} min`
+                    : `${Math.floor(waitingMinutes / 60)} h`}
+                </span>
+                <span className="hidden sm:inline">
+                  {waitingMinutes < 60
+                    ? `Más de ${waitingMinutes} min sin respuesta`
+                    : `${Math.floor(waitingMinutes / 60)} h sin respuesta`}
+                </span>
+              </span>
+            ) : null}
+            <ChannelBadge channel={conversation.channel} compact />
+            {conversation.channel === 'whatsapp' &&
+              conversation.whatsapp_config?.connection_name && (
+                <span
+                  className="border-primary/25 bg-primary/8 text-primary hidden max-w-32 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium sm:inline-flex"
+                  title={
+                    conversation.whatsapp_config.display_phone
+                      ? `${conversation.whatsapp_config.connection_name} · +${conversation.whatsapp_config.display_phone}`
+                      : conversation.whatsapp_config.connection_name
+                  }
+                >
+                  <span className="truncate">
+                    {conversation.whatsapp_config.connection_name}
+                  </span>
+                </span>
+              )}
+            <TicketStatusBadge status={conversation.status} compact />
+            {aiIndicator && (
+              <span className="border-primary/30 bg-primary/10 text-primary inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold">
+                <Bot className="size-2.5" />
+                {aiIndicator.label}
+              </span>
+            )}
+            {contactTags.map((tag, index) => (
               <span
-                className="size-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: tag.color }}
-              />
-              <span className="truncate">{tag.name}</span>
-            </span>
-          ))}
-          <span className="border-border bg-background text-muted-foreground inline-flex min-w-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]">
-            <UserRoundCheck className="size-2.5 shrink-0" />
-            <span className="truncate">
-              {conversation.assigned_agent_id ? 'Asignado' : 'Sin asignar'}
-            </span>
-          </span>
-          <span className="border-border text-muted-foreground hidden min-w-0 items-center gap-1 rounded-full border border-dashed px-1.5 py-0.5 text-[10px] xl:inline-flex">
+                key={tag.id}
+                className={cn(
+                  'max-w-32 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium',
+                  index === 0 ? 'inline-flex' : 'hidden sm:inline-flex'
+                )}
+                style={{
+                  backgroundColor: `${tag.color}18`,
+                  borderColor: `${tag.color}55`,
+                  color: tag.color,
+                }}
+                title={tag.name}
+              >
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: tag.color }}
+                />
+                <span className="truncate">{tag.name}</span>
+              </span>
+            ))}
+            {contactTags.length > 1 ? (
+              <span className="border-border bg-background text-muted-foreground inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] sm:hidden">
+                +{contactTags.length - 1}
+              </span>
+            ) : null}
             <span
-              className="size-2 shrink-0 rounded-full"
-              style={{
-                backgroundColor: conversation.department?.color ?? '#64748b',
-              }}
-            />
-            <span className="truncate">
-              {conversation.department?.name ?? 'Sin depto.'}
+              className={cn(
+                'inline-flex max-w-32 min-w-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] sm:max-w-none',
+                conversation.assigned_agent_id
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : 'border-border bg-background text-muted-foreground'
+              )}
+              title={
+                conversation.assigned_agent_id
+                  ? `Lead protegido para ${assignedAgentName || 'el ejecutivo asignado'}`
+                  : 'Este lead todavía no tiene ejecutivo'
+              }
+            >
+              {conversation.assigned_agent_id ? (
+                <LockKeyhole className="size-2.5 shrink-0" />
+              ) : (
+                <UserRoundCheck className="size-2.5 shrink-0" />
+              )}
+              <span className="truncate">
+                {conversation.assigned_agent_id
+                  ? assignedAgentName || 'Ejecutivo asignado'
+                  : 'Sin asignar'}
+              </span>
             </span>
-          </span>
+            <span className="border-border text-muted-foreground hidden min-w-0 items-center gap-1 rounded-full border border-dashed px-1.5 py-0.5 text-[10px] xl:inline-flex">
+              <span
+                className="size-2 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: conversation.department?.color ?? '#64748b',
+                }}
+              />
+              <span className="truncate">
+                {conversation.department?.name ?? 'Sin depto.'}
+              </span>
+            </span>
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+
+      {canAccept ? (
+        <div className="flex shrink-0 items-start py-3 pr-3 sm:py-4.5 sm:pr-4">
+          <button
+            type="button"
+            onClick={handleAcceptClick}
+            disabled={isAccepting}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex size-10 items-center justify-center gap-1.5 rounded-xl p-0 text-xs font-bold shadow-sm transition-colors disabled:opacity-60 sm:h-8 sm:w-auto sm:rounded-lg sm:px-2.5"
+            title="Aceptar y proteger este lead para ti"
+          >
+            {isAccepting ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <LockKeyhole className="size-3" />
+            )}
+            <span className="hidden sm:inline">Aceptar</span>
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }

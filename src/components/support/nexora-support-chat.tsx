@@ -284,7 +284,7 @@ export function NexoraSupportChat({ embedded = false }: Props) {
           <button
             type="button"
             aria-label="Abrir Nexora Asistente"
-            className="bg-primary text-primary-foreground shadow-primary/30 fixed right-5 bottom-5 z-40 flex size-14 items-center justify-center rounded-2xl shadow-2xl transition-transform hover:scale-105"
+            className="bg-primary text-primary-foreground shadow-primary/30 fixed right-5 bottom-5 z-40 hidden size-14 items-center justify-center rounded-2xl shadow-2xl transition-transform hover:scale-105 md:flex"
           />
         }
       >

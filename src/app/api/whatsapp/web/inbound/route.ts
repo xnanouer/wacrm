@@ -14,6 +14,7 @@ import {
 import { whatsappWebAckToStatus } from '@/lib/whatsapp/message-status';
 import { prepareOutboundMediaUrl } from '@/lib/storage/private-media-server';
 import { isWhatsAppBridgeRequestAuthorized } from '@/lib/whatsapp/bridge-auth';
+import { visibleMediaText } from '@/lib/inbox/media-text';
 
 export const maxDuration = 60;
 
@@ -116,19 +117,20 @@ async function ingest(event: InboundBody) {
     // A WhatsApp Web media event can arrive before its bytes are available.
     // When the worker retries the same message, complete the existing row
     // instead of discarding the recovered attachment as a duplicate.
-    if (!duplicate.media_url && event.mediaUrl) {
-      const recoveredText =
-        duplicate.content_text === `[${event.contentType}]`
-          ? event.text || null
-          : duplicate.content_text;
+    const recoveredText = visibleMediaText(
+      event.text,
+      event.contentType || 'text'
+    );
+    const shouldRecoverMedia = !duplicate.media_url && Boolean(event.mediaUrl);
+    const shouldRecoverText = !duplicate.content_text && Boolean(recoveredText);
+    if (shouldRecoverMedia || shouldRecoverText) {
       const { error: recoveryError } = await db
         .from('messages')
         .update({
-          media_url: event.mediaUrl,
-          content_text: recoveredText,
+          ...(shouldRecoverMedia ? { media_url: event.mediaUrl } : {}),
+          ...(shouldRecoverText ? { content_text: recoveredText } : {}),
         })
-        .eq('id', duplicate.id)
-        .is('media_url', null);
+        .eq('id', duplicate.id);
       if (recoveryError) throw recoveryError;
     }
     return;
@@ -208,11 +210,12 @@ async function ingest(event: InboundBody) {
   const contentType = allowed.has(event.contentType || '')
     ? event.contentType!
     : 'text';
+  const cleanEventText = visibleMediaText(event.text, contentType);
   const text =
-    event.text ||
-    (contentType === 'text' || contentType === 'audio'
-      ? ''
-      : `[${contentType}]`);
+    cleanEventText ||
+    (!event.mediaUrl && contentType !== 'text' && contentType !== 'audio'
+      ? `[${contentType}]`
+      : '');
   const receivedAt = new Date(
     (event.timestamp || Date.now() / 1000) * 1000
   ).toISOString();
@@ -222,6 +225,7 @@ async function ingest(event: InboundBody) {
     const { error: outboundError } = await db.from('messages').insert({
       conversation_id: conversation.id,
       sender_type: 'agent',
+      sender_id: conversation.assigned_agent_id || config.user_id,
       content_type: contentType,
       content_text: text || null,
       media_url: event.mediaUrl || null,

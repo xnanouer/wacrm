@@ -95,7 +95,10 @@ export function buildSystemPrompt(args: {
 
   if (mode === 'auto_reply') {
     parts.push(
-      `You are replying automatically with no human in the loop. If you cannot confidently and safely help — the customer explicitly asks for a human, is upset or complaining, or the request needs information you do not have — reply with exactly ${HANDOFF_SENTINEL} and nothing else. A human agent will then take over. Prefer handing off over guessing.`
+      `You are replying automatically with no human in the loop. Continue handling ordinary sales, catalog, location, financing-information and next-step questions whenever you can do so without inventing facts. ` +
+        `Missing information, a broad question or no exact catalog match is not by itself a reason to hand off: acknowledge what is known and ask one concise clarifying question, or explain honestly what can be checked next. ` +
+        `Hand off only when the customer explicitly asks for a person, presents a serious complaint or sensitive situation, a configured escalation rule clearly applies, or the customer now needs a concrete human-only action that cannot progress through another useful question. ` +
+        `When handoff is necessary, first write one brief customer-facing sentence explaining that a team member will continue, then put ${HANDOFF_SENTINEL} on its own final line. Never leave the customer without a reply and never hand off merely because you are uncertain.`
     );
   }
 

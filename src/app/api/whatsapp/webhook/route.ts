@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api';
+import { persistInboundWhatsAppMedia } from '@/lib/whatsapp/inbound-media';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature';
@@ -642,8 +643,8 @@ async function processMessage(
   }
 
   // Parse message content based on type
-  const { contentText, mediaUrl, mediaType, interactiveReplyId } =
-    await parseMessageContent(message, accessToken);
+  const { contentText, mediaUrl, mediaType, mediaBuffer, interactiveReplyId } =
+    await parseMessageContent(message, accessToken, accountId);
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.
@@ -665,11 +666,6 @@ async function processMessage(
   // (see supabase/migrations/001_initial_schema.sql):
   //   conversation_id, sender_type, content_type, content_text,
   //   media_url, template_name, message_id, status, created_at
-  // `mediaType` is intentionally unused — the schema has no media_type
-  // column; the MIME type is only used to construct the proxy URL during
-  // parseMessageContent. Silence the unused-var warning:
-  void mediaType;
-
   // The messages.content_type CHECK constraint (widened in migration 010
   // to add 'interactive' for button/list taps) allows:
   //   text, image, document, audio, video, location, template, interactive
@@ -750,14 +746,20 @@ async function processMessage(
   let effectiveText = contentText ?? message.text?.body ?? '';
   if (contentType === 'audio' && message.audio?.id) {
     try {
-      const resolved = await getMediaUrl({
-        mediaId: message.audio.id,
-        accessToken,
-      });
-      const downloaded = await downloadMedia({
-        downloadUrl: resolved.url,
-        accessToken,
-      });
+      let audioBuffer = mediaBuffer;
+      let audioMimeType = mediaType || 'audio/ogg';
+      if (!audioBuffer) {
+        const resolved = await getMediaUrl({
+          mediaId: message.audio.id,
+          accessToken,
+        });
+        const downloaded = await downloadMedia({
+          downloadUrl: resolved.url,
+          accessToken,
+        });
+        audioBuffer = downloaded.buffer;
+        audioMimeType = downloaded.contentType || resolved.mimeType;
+      }
       const transcript = await transcribeInboundAudio({
         db: supabaseAdmin(),
         accountId,
@@ -767,8 +769,8 @@ async function processMessage(
         sourceMessageId: sourceMessage.id,
         sourceMessageExternalId: message.id,
         whatsappConfigId,
-        buffer: downloaded.buffer,
-        mimeType: downloaded.contentType || mediaType || 'audio/ogg',
+        buffer: audioBuffer,
+        mimeType: audioMimeType,
       });
       if (transcript) effectiveText = transcript;
     } catch (error) {
@@ -908,11 +910,13 @@ async function processMessage(
 
 async function parseMessageContent(
   message: WhatsAppMessage,
-  accessToken: string
+  accessToken: string,
+  accountId: string
 ): Promise<{
   contentText: string | null;
   mediaUrl: string | null;
   mediaType: string | null;
+  mediaBuffer: Buffer | null;
   /**
    * For interactive button / list replies: the stable id of the tapped
    * option (whatever we put on the button when sending). Used by the
@@ -922,21 +926,19 @@ async function parseMessageContent(
    */
   interactiveReplyId: string | null;
 }> {
-  // getMediaUrl signature is (mediaId, accessToken) — earlier code had
-  // the args swapped, so every verification hit an invalid Meta URL and
-  // fell through to the catch block, leaving mediaUrl as null. That's
-  // why images showed up as empty bubbles in the inbox.
-  const verifyAndBuildUrl = async (mediaId: string): Promise<string | null> => {
-    try {
-      await getMediaUrl({ mediaId, accessToken });
-      return `/api/whatsapp/media/${mediaId}`;
-    } catch (error) {
-      console.error(
-        `Failed to verify media ${mediaId} with Meta:`,
-        error instanceof Error ? error.message : error
-      );
-      return null;
-    }
+  const persistMedia = async (mediaId: string, declaredMimeType?: string) => {
+    const result = await persistInboundWhatsAppMedia({
+      db: supabaseAdmin(),
+      accountId,
+      mediaId,
+      accessToken,
+      declaredMimeType,
+    });
+    return {
+      mediaUrl: result.mediaUrl,
+      mediaType: result.mediaType,
+      mediaBuffer: result.buffer,
+    };
   };
 
   // Default shape — each case overrides only the fields it cares about.
@@ -945,6 +947,7 @@ async function parseMessageContent(
     contentText: null,
     mediaUrl: null,
     mediaType: null,
+    mediaBuffer: null,
     interactiveReplyId: null,
   };
 
@@ -954,44 +957,56 @@ async function parseMessageContent(
 
     case 'image':
       if (message.image?.id) {
+        const media = await persistMedia(
+          message.image.id,
+          message.image.mime_type
+        );
         return {
           ...empty,
+          ...media,
           contentText: message.image.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.image.id),
-          mediaType: message.image.mime_type,
         };
       }
       return empty;
 
     case 'video':
       if (message.video?.id) {
+        const media = await persistMedia(
+          message.video.id,
+          message.video.mime_type
+        );
         return {
           ...empty,
+          ...media,
           contentText: message.video.caption || null,
-          mediaUrl: await verifyAndBuildUrl(message.video.id),
-          mediaType: message.video.mime_type,
         };
       }
       return empty;
 
     case 'document':
       if (message.document?.id) {
+        const media = await persistMedia(
+          message.document.id,
+          message.document.mime_type
+        );
         return {
           ...empty,
+          ...media,
           contentText:
             message.document.caption || message.document.filename || null,
-          mediaUrl: await verifyAndBuildUrl(message.document.id),
-          mediaType: message.document.mime_type,
         };
       }
       return empty;
 
     case 'audio':
       if (message.audio?.id) {
+        const media = await persistMedia(
+          message.audio.id,
+          message.audio.mime_type
+        );
         return {
           ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.audio.id),
-          mediaType: message.audio.mime_type,
+          ...media,
         };
       }
       return empty;
@@ -1001,10 +1016,13 @@ async function parseMessageContent(
       // MessageBubble renders the <img>. The caller maps the DB
       // content_type to 'image' for the CHECK constraint.
       if (message.sticker?.id) {
+        const media = await persistMedia(
+          message.sticker.id,
+          message.sticker.mime_type
+        );
         return {
           ...empty,
-          mediaUrl: await verifyAndBuildUrl(message.sticker.id),
-          mediaType: message.sticker.mime_type,
+          ...media,
         };
       }
       return empty;

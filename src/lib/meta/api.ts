@@ -160,7 +160,10 @@ export async function subscribePageWebhooks(input: {
   pageAccessToken: string;
 }): Promise<boolean> {
   const params = authorizedParams(input.pageAccessToken);
-  params.set('subscribed_fields', 'messages,messaging_feedback');
+  // `messaging_feedback` is no longer offered by current Messenger webhook
+  // versions. Requesting an unavailable field makes the whole subscription
+  // fail, including the `messages` event Nexora actually consumes.
+  params.set('subscribed_fields', 'messages');
   const payload = await metaFetch<{ success?: boolean }>(
     `${graphUrl(`${input.pageId}/subscribed_apps`)}?${params}`,
     { method: 'POST' }

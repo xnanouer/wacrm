@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { buildMetaAuthorizationUrl, sendSocialText } from './api';
+import {
+  buildMetaAuthorizationUrl,
+  sendSocialText,
+  subscribePageWebhooks,
+} from './api';
 
 describe('Meta social API', () => {
   beforeEach(() => {
@@ -78,6 +82,25 @@ describe('Meta social API', () => {
     );
     expect(JSON.parse(String(instagramInit.body))).not.toHaveProperty(
       'messaging_type'
+    );
+  });
+
+  it('subscribes pages only to supported Messenger message events', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), { status: 200 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      subscribePageWebhooks({
+        pageId: 'page-1',
+        pageAccessToken: 'page-token',
+      })
+    ).resolves.toBe(true);
+
+    const subscriptionUrl = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(subscriptionUrl.searchParams.get('subscribed_fields')).toBe(
+      'messages'
     );
   });
 });

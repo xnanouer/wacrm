@@ -446,37 +446,69 @@ function DepartmentTable({ analytics }: { analytics: TicketAnalytics }) {
       title="Rendimiento por departamento"
       description="Actividad dentro del período seleccionado"
     >
-      <table className="w-full min-w-[520px] text-left text-sm">
-        <thead className="text-muted-foreground text-xs">
-          <tr className="border-border border-b">
-            <th className="px-5 py-3 font-medium">Departamento</th>
-            <th className="px-3 py-3 text-right font-medium">Nuevos</th>
-            <th className="px-3 py-3 text-right font-medium">Pendientes</th>
-            <th className="px-5 py-3 text-right font-medium">Cerrados</th>
-          </tr>
-        </thead>
-        <tbody>
-          {analytics.departments.map((department) => (
-            <tr
-              key={department.departmentId}
-              className="border-border/70 border-b last:border-0"
-            >
-              <td className="text-foreground px-5 py-3 font-medium">
-                <span className="flex items-center gap-2">
-                  <span
-                    className="size-2.5 rounded-full"
-                    style={{ backgroundColor: department.color }}
-                  />
-                  {department.name}
-                </span>
-              </td>
-              <NumberCell value={department.newTickets} />
-              <NumberCell value={department.pendingNow} />
-              <NumberCell value={department.closedTickets} last />
+      <div className="divide-border divide-y md:hidden">
+        {analytics.departments.map((department) => (
+          <div key={department.departmentId} className="p-4">
+            <p className="text-foreground flex items-center gap-2 font-semibold">
+              <span
+                className="size-2.5 rounded-full"
+                style={{ backgroundColor: department.color }}
+              />
+              {department.name}
+            </p>
+            <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+              {[
+                ['Nuevos', department.newTickets],
+                ['Pendientes', department.pendingNow],
+                ['Cerrados', department.closedTickets],
+              ].map(([label, value]) => (
+                <div
+                  key={String(label)}
+                  className="bg-muted/50 rounded-xl p-2.5"
+                >
+                  <dt className="text-muted-foreground truncate">{label}</dt>
+                  <dd className="text-foreground mt-1 font-bold tabular-nums">
+                    {Number(value).toLocaleString()}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[520px] text-left text-sm">
+          <thead className="text-muted-foreground text-xs">
+            <tr className="border-border border-b">
+              <th className="px-5 py-3 font-medium">Departamento</th>
+              <th className="px-3 py-3 text-right font-medium">Nuevos</th>
+              <th className="px-3 py-3 text-right font-medium">Pendientes</th>
+              <th className="px-5 py-3 text-right font-medium">Cerrados</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {analytics.departments.map((department) => (
+              <tr
+                key={department.departmentId}
+                className="border-border/70 border-b last:border-0"
+              >
+                <td className="text-foreground px-5 py-3 font-medium">
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="size-2.5 rounded-full"
+                      style={{ backgroundColor: department.color }}
+                    />
+                    {department.name}
+                  </span>
+                </td>
+                <NumberCell value={department.newTickets} />
+                <NumberCell value={department.pendingNow} />
+                <NumberCell value={department.closedTickets} last />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </AnalyticsTableCard>
   );
 }
@@ -493,39 +525,69 @@ function AgentTable({
       title="Rendimiento por ejecutivo"
       description="Métricas objetivas, sin puntuación artificial"
     >
-      <table className="w-full min-w-[700px] text-left text-sm">
-        <thead className="text-muted-foreground text-xs">
-          <tr className="border-border border-b">
-            <th className="px-5 py-3 font-medium">Ejecutivo</th>
-            <th className="px-3 py-3 text-right font-medium">Asignados</th>
-            <th className="px-3 py-3 text-right font-medium">Aceptados</th>
-            <th className="px-3 py-3 text-right font-medium">Cerrados</th>
-            <th className="px-3 py-3 text-right font-medium">1ª respuesta</th>
-            <th className="px-5 py-3 text-right font-medium">Resolución</th>
-          </tr>
-        </thead>
-        <tbody>
-          {analytics.agents.map((agent) => (
-            <tr
-              key={agent.agentId}
-              className="border-border/70 border-b last:border-0"
-            >
-              <td className="text-foreground px-5 py-3 font-medium">
-                {memberNames.get(agent.agentId) ?? 'Ejecutivo'}
-              </td>
-              <NumberCell value={agent.assignedNow} />
-              <NumberCell value={agent.acceptedTickets} />
-              <NumberCell value={agent.closedTickets} />
-              <td className="text-muted-foreground px-3 py-3 text-right tabular-nums">
-                {formatDuration(agent.avgFirstResponseMinutes)}
-              </td>
-              <td className="text-muted-foreground px-5 py-3 text-right tabular-nums">
-                {formatDuration(agent.avgResolutionMinutes)}
-              </td>
+      <div className="divide-border divide-y md:hidden">
+        {analytics.agents.map((agent) => (
+          <div key={agent.agentId} className="p-4">
+            <p className="text-foreground truncate font-semibold">
+              {memberNames.get(agent.agentId) ?? 'Ejecutivo'}
+            </p>
+            <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              {[
+                ['Asignados', agent.assignedNow.toLocaleString()],
+                ['Aceptados', agent.acceptedTickets.toLocaleString()],
+                ['Cerrados', agent.closedTickets.toLocaleString()],
+                ['1ª respuesta', formatDuration(agent.avgFirstResponseMinutes)],
+                ['Resolución', formatDuration(agent.avgResolutionMinutes)],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="bg-muted/50 flex min-w-0 items-center justify-between gap-2 rounded-xl p-2.5"
+                >
+                  <dt className="text-muted-foreground truncate">{label}</dt>
+                  <dd className="text-foreground shrink-0 font-semibold tabular-nums">
+                    {value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[700px] text-left text-sm">
+          <thead className="text-muted-foreground text-xs">
+            <tr className="border-border border-b">
+              <th className="px-5 py-3 font-medium">Ejecutivo</th>
+              <th className="px-3 py-3 text-right font-medium">Asignados</th>
+              <th className="px-3 py-3 text-right font-medium">Aceptados</th>
+              <th className="px-3 py-3 text-right font-medium">Cerrados</th>
+              <th className="px-3 py-3 text-right font-medium">1ª respuesta</th>
+              <th className="px-5 py-3 text-right font-medium">Resolución</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {analytics.agents.map((agent) => (
+              <tr
+                key={agent.agentId}
+                className="border-border/70 border-b last:border-0"
+              >
+                <td className="text-foreground px-5 py-3 font-medium">
+                  {memberNames.get(agent.agentId) ?? 'Ejecutivo'}
+                </td>
+                <NumberCell value={agent.assignedNow} />
+                <NumberCell value={agent.acceptedTickets} />
+                <NumberCell value={agent.closedTickets} />
+                <td className="text-muted-foreground px-3 py-3 text-right tabular-nums">
+                  {formatDuration(agent.avgFirstResponseMinutes)}
+                </td>
+                <td className="text-muted-foreground px-5 py-3 text-right tabular-nums">
+                  {formatDuration(agent.avgResolutionMinutes)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </AnalyticsTableCard>
   );
 }
@@ -545,7 +607,7 @@ function AnalyticsTableCard({
         <h3 className="text-foreground text-sm font-semibold">{title}</h3>
         <p className="text-muted-foreground mt-0.5 text-xs">{description}</p>
       </div>
-      <div className="overflow-x-auto">{children}</div>
+      <div>{children}</div>
     </div>
   );
 }

@@ -7,6 +7,19 @@ import {
 } from '@/lib/rate-limit';
 import { createClient } from '@/lib/supabase/server';
 
+function getSessionClockDelayMs(accessToken: string | undefined): number {
+  if (!accessToken) return 0;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(accessToken.split('.')[1] ?? '', 'base64url').toString('utf8')
+    ) as { iat?: unknown };
+    if (typeof payload.iat !== 'number') return 0;
+    return Math.max(0, payload.iat * 1_000 - Date.now() + 1_500);
+  } catch {
+    return 0;
+  }
+}
+
 export async function POST(request: Request) {
   const forwardedFor = request.headers.get('x-forwarded-for');
   const clientIp =
@@ -76,5 +89,16 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ success: true });
+  const sessionClockDelayMs = getSessionClockDelayMs(
+    data.session?.access_token
+  );
+  console.info('[auth] session issued', {
+    userId: data.user.id,
+    clockDelayMs: sessionClockDelayMs,
+  });
+
+  return NextResponse.json({
+    success: true,
+    sessionClockDelayMs: Math.min(sessionClockDelayMs, 5 * 60_000),
+  });
 }

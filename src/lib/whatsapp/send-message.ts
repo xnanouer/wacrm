@@ -79,6 +79,8 @@ export interface SendMessageParams {
   replyToMessageId?: string | null;
   /** Persist the real sender identity. Automated responders use `bot`. */
   senderType?: 'agent' | 'bot';
+  /** Auth user that authored a human message. Null for bots/integrations. */
+  senderId?: string | null;
   /** Human sends pause active Flows; automated sends do not. */
   pauseFlows?: boolean;
 }
@@ -183,6 +185,7 @@ export async function sendMessageToConversation(
     templateMessageParams,
     replyToMessageId,
     senderType = 'agent',
+    senderId,
     pauseFlows = true,
   } = params;
 
@@ -483,6 +486,7 @@ export async function sendMessageToConversation(
     .insert({
       conversation_id: conversationId,
       sender_type: senderType,
+      sender_id: senderType === 'agent' ? senderId || null : null,
       content_type: messageType,
       content_text: contentText || null,
       media_url: mediaUrl || null,

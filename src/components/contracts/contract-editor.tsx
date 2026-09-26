@@ -705,7 +705,7 @@ export function ContractEditor() {
         ) : null}
       </div>
 
-      <div className="border-border bg-background/95 fixed right-0 bottom-0 left-0 z-20 border-t p-4 shadow-2xl backdrop-blur lg:left-[304px]">
+      <div className="border-border bg-background/95 fixed right-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-0 z-20 border-t p-4 shadow-2xl backdrop-blur md:bottom-0 lg:left-[304px]">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div className="hidden sm:block">
             <p className="text-sm font-semibold">Generar documento</p>

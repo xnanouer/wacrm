@@ -56,7 +56,10 @@ interface VehicleDetailRow {
 }
 
 interface ImageRow {
+  id: string;
   storage_path: string;
+  alt_text: string;
+  byte_size: number | string;
   is_primary: boolean;
   sort_order: number;
 }
@@ -133,7 +136,14 @@ export async function loadCatalogData(
             financing_text,
             current_location
           ),
-          catalog_item_images(storage_path, is_primary, sort_order)
+          catalog_item_images(
+            id,
+            storage_path,
+            alt_text,
+            byte_size,
+            is_primary,
+            sort_order
+          )
         `
       )
       .eq('account_id', ctx.accountId)
@@ -158,36 +168,40 @@ export async function loadCatalogData(
     }
   }
 
-  const primaryPaths = items
-    .map((item) => {
-      const orderedImages = (item.catalog_item_images ?? [])
-        .slice()
-        .sort((a, b) => a.sort_order - b.sort_order);
-      return (
-        orderedImages.find((image) => image.is_primary)?.storage_path ??
-        orderedImages[0]?.storage_path
-      );
-    })
-    .filter((path): path is string => Boolean(path));
+  const imagePaths = [
+    ...new Set(
+      items.flatMap((item) =>
+        (item.catalog_item_images ?? []).map((image) => image.storage_path)
+      )
+    ),
+  ];
 
   const signedUrls = new Map<string, string>();
-  await Promise.all(
-    primaryPaths.map(async (path) => {
-      const { data } = await ctx.supabase.storage
-        .from('catalog-media')
-        .createSignedUrl(path, 3600);
-      if (data?.signedUrl) signedUrls.set(path, data.signedUrl);
-    })
-  );
+  if (imagePaths.length > 0) {
+    const { data } = await ctx.supabase.storage
+      .from('catalog-media')
+      .createSignedUrls(imagePaths, 3600);
+    for (const image of data ?? []) {
+      if (image.path && image.signedUrl) {
+        signedUrls.set(image.path, image.signedUrl);
+      }
+    }
+  }
 
   const vehicles = items.map((item, index): CatalogVehicle => {
     const detail = relationOne(item.catalog_vehicle_details);
     const orderedImages = (item.catalog_item_images ?? [])
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order);
-    const primaryPath =
-      orderedImages.find((image) => image.is_primary)?.storage_path ??
-      orderedImages[0]?.storage_path;
+    const primaryImage =
+      orderedImages.find((image) => image.is_primary) ?? orderedImages[0];
+    const galleryImages = primaryImage
+      ? [
+          primaryImage,
+          ...orderedImages.filter((image) => image.id !== primaryImage.id),
+        ]
+      : [];
+    const primaryPath = primaryImage?.storage_path;
     return {
       id: item.id,
       internalCode: item.internal_code,
@@ -219,6 +233,14 @@ export async function loadCatalogData(
       imageCount: (item.catalog_item_images ?? []).length,
       photoTone: PHOTO_TONES[index % PHOTO_TONES.length],
       photoUrl: primaryPath ? (signedUrls.get(primaryPath) ?? null) : null,
+      images: galleryImages.map((image, imageIndex) => ({
+        id: image.id,
+        url: signedUrls.get(image.storage_path) ?? null,
+        altText: image.alt_text,
+        byteSize: numeric(image.byte_size) ?? 0,
+        sortOrder: imageIndex,
+        isPrimary: imageIndex === 0,
+      })),
     };
   });
 

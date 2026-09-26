@@ -423,8 +423,24 @@ export async function dispatchInboundToAiReply(
     }
 
     if (handoff || !text) {
-      // A handoff still consumed a completed inference, but no outbound is
-      // sent and the conversation is surfaced to a human.
+      // Never leave the customer in silence when the model requests a human.
+      // The prompt asks for a short transition sentence, while this localized
+      // fallback also covers older/custom prompts that emit only the marker.
+      const handoffText =
+        text ||
+        (config.language === 'en'
+          ? 'Thanks. I will ask a team member to continue with you here.'
+          : config.language === 'pt-BR'
+            ? 'Obrigado. Vou pedir para alguém da equipe continuar com você por aqui.'
+            : 'Gracias. Voy a pedir apoyo a un ejecutivo para continuar contigo por aquí.');
+      await sendMessageToConversation(db, accountId, {
+        conversationId,
+        messageType: 'text',
+        contentText: handoffText,
+        senderType: 'bot',
+        pauseFlows: false,
+      });
+
       await db
         .from('conversations')
         .update({

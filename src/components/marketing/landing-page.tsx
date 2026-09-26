@@ -1094,12 +1094,15 @@ export function LandingPage() {
                   Próximamente
                 </span>
               </span>
-              <span title="Documento próximamente disponible">
+              <Link href="/privacidad" className="hover:text-foreground">
                 Política de privacidad
-                <span className="text-primary ml-1.5 text-[9px] font-bold uppercase">
-                  Próximamente
-                </span>
-              </span>
+              </Link>
+              <Link
+                href="/eliminacion-de-datos"
+                className="hover:text-foreground"
+              >
+                Eliminación de datos
+              </Link>
             </div>
           </div>
 

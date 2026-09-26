@@ -1,0 +1,23 @@
+{
+  admin off
+}
+
+www.{$SITE_DOMAIN} {
+  redir https://{$SITE_DOMAIN}{uri} permanent
+}
+
+{$SITE_DOMAIN} {
+  encode zstd gzip
+
+  reverse_proxy web:3000 {
+    # Preserve streaming responses from the Next.js App Router.
+    flush_interval -1
+  }
+
+  header -Server
+
+  log {
+    output stdout
+    format json
+  }
+}

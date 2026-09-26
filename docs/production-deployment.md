@@ -66,3 +66,49 @@ El volumen `whatsapp_sessions` debe permanecer cifrado en reposo, respaldado y
 accesible solo por el usuario del contenedor. Reiniciar el contenedor conserva
 la sesión; borrar el volumen obliga a escanear el QR otra vez. Para alta
 disponibilidad no ejecute dos workers sobre la misma sesión simultáneamente.
+
+## Despliegue exclusivo con WhatsApp Cloud API
+
+Cuando todas las conexiones usan la API oficial de Meta no se necesita el
+worker QR. Use `docker-compose.cloud-api.yml`; este perfil ejecuta una sola
+instancia de Next.js, Caddy como proxy HTTPS y un scheduler interno para los
+cuatro endpoints programados. El puerto 3000 permanece dentro de la red de
+Docker y solo Caddy publica 80/443.
+
+Guarde los secretos en `.env.production`, que queda excluido del contexto de
+Docker. Ejecute Compose indicando ese archivo para que las variables
+`NEXT_PUBLIC_*` estén disponibles también durante el build:
+
+```bash
+docker compose --env-file .env.production \
+  -f docker-compose.cloud-api.yml up -d --build
+```
+
+Este perfil conserva el volumen TLS de Caddy, pero no crea volúmenes de sesión
+QR. Si una empresa necesita conexión mediante QR, use el despliegue completo y
+respalde `whatsapp_sessions` como se describe arriba.
+
+## Despliegue híbrido en VPS
+
+Para operar simultáneamente con Meta Cloud API y conexiones por QR use
+`docker-compose.production.yml`. Este perfil mantiene cuatro servicios:
+
+- `web`: la aplicación Next.js;
+- `whatsapp-worker`: el navegador aislado que conserva las sesiones QR;
+- `scheduler`: los trabajos programados internos;
+- `caddy`: HTTPS y proxy público.
+
+El worker escucha en el puerto 3001 solo dentro de la red privada de Docker. No
+publique ese puerto en el firewall ni en el host. Las sesiones y la caché del
+dispositivo vinculado viven en los volúmenes `whatsapp_sessions` y
+`whatsapp_cache`; inclúyalos en los respaldos del VPS.
+
+```bash
+docker compose --env-file .env.production \
+  -f docker-compose.production.yml up -d --build
+```
+
+En un KVM1 los límites de memoria del archivo Compose dejan capacidad para el
+sistema operativo y usan el swap solo para picos breves de Chromium. Supervise
+memoria, reinicios y el healthcheck del worker antes de aumentar el número de
+sesiones QR concurrentes.

@@ -4,7 +4,11 @@ import {
   LEAD_PROFILE_END_SENTINEL,
   LEAD_PROFILE_START_SENTINEL,
 } from './defaults';
-import type { ConversationLeadProfile, LeadProfilePatch } from './types';
+import type {
+  ChatMessage,
+  ConversationLeadProfile,
+  LeadProfilePatch,
+} from './types';
 
 const TEXT_LIMITS: Record<keyof LeadProfilePatch, number> = {
   full_name: 160,
@@ -72,6 +76,85 @@ export function extractLeadProfilePatch(raw: string): LeadProfilePatch {
   } catch {
     return {};
   }
+}
+
+/** Parse the dedicated extractor's JSON response. The fence fallback keeps
+ * the workflow resilient when a provider wraps otherwise valid JSON in a
+ * Markdown code block despite being instructed not to. */
+export function parseLeadProfileJson(raw: string): LeadProfilePatch {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? raw;
+  const start = fenced.indexOf('{');
+  const end = fenced.lastIndexOf('}');
+  if (start < 0 || end <= start) return {};
+
+  try {
+    const parsed = JSON.parse(fenced.slice(start, end + 1)) as unknown;
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      'profile' in parsed
+    ) {
+      return sanitizeLeadProfilePatch(
+        (parsed as { profile?: unknown }).profile
+      );
+    }
+    return sanitizeLeadProfilePatch(parsed);
+  } catch {
+    return {};
+  }
+}
+
+export function shouldExtractLeadProfile(messages: ChatMessage[]): boolean {
+  const latestUserIndex = messages.findLastIndex(
+    (message) => message.role === 'user' && message.content.trim().length > 0
+  );
+  if (latestUserIndex < 0) return false;
+
+  const latestUser = messages[latestUserIndex].content;
+  const previousAssistant = messages
+    .slice(0, latestUserIndex)
+    .findLast((message) => message.role === 'assistant')?.content;
+  const qualificationSignal = [previousAssistant, latestUser]
+    .filter(Boolean)
+    .join(' ');
+
+  return /\b(nombre|rut|tel[eé]fono|ciudad|comuna|veh[ií]culo|auto|suv|camioneta|modelo|marca|pie|presupuesto|financia|cr[eé]dito|ingres|contrato|indefinido|plazo fijo|antig[uü]edad|dicom|parte de pago|cotizaci[oó]n|cotizaciones|comprar|compra)\b/i.test(
+    qualificationSignal
+  );
+}
+
+export function buildLeadProfileExtractionPrompt(
+  profile: ConversationLeadProfile,
+  configuredFields: string[]
+): string {
+  const existing = {
+    full_name: profile.full_name,
+    rut: profile.rut,
+    phone: profile.phone,
+    city: profile.city,
+    vehicle_interest: profile.vehicle_interest,
+    down_payment: profile.down_payment,
+    income_proof: profile.income_proof,
+    employment_type: profile.employment_type,
+    employment_tenure: profile.employment_tenure,
+    has_dicom: profile.has_dicom,
+    trade_in: profile.trade_in,
+    trade_in_vehicle: profile.trade_in_vehicle,
+    purchase_timeline: profile.purchase_timeline,
+    financing_requested: profile.financing_requested,
+  };
+
+  return [
+    'Eres un extractor interno de datos de precalificación para un CRM.',
+    'Lee la conversación completa y devuelve únicamente un objeto JSON válido, sin Markdown ni explicaciones.',
+    `La empresa desea recopilar: ${configuredFields.join(', ')}.`,
+    `Datos ya guardados: ${JSON.stringify(existing)}.`,
+    'Incluye solo datos nuevos o correcciones que el cliente haya confirmado explícitamente. Usa la pregunta inmediatamente anterior para interpretar respuestas breves como "sí", "Santiago" o "indefinido".',
+    'No copies como hecho una afirmación hecha solamente por el asistente. No inventes ni deduzcas aprobación financiera. Si no hay datos nuevos confirmados, devuelve {}.',
+    'Claves permitidas: full_name, rut, phone, city, vehicle_interest, down_payment, income_proof, employment_type, employment_tenure, has_dicom, trade_in, trade_in_vehicle, purchase_timeline, financing_requested.',
+    'income_proof, has_dicom, trade_in y financing_requested deben ser booleanos true o false. Todos los demás valores deben ser texto. Omite claves no confirmadas.',
+  ].join('\n');
 }
 
 export function stripLeadProfileBlock(raw: string): string {
@@ -206,7 +289,7 @@ export function buildLeadQualificationContext(
     'Conversa como un asesor humano. Primero ayuda con la necesidad del cliente y recopila gradualmente, como máximo dos preguntas relacionadas por mensaje. No envíes un formulario ni preguntes de nuevo algo confirmado.',
     'Pregunta RUT, acreditación de ingresos, contrato, antigüedad y DICOM únicamente si el cliente pide financiamiento. Explica brevemente que se usan para orientar una precalificación; no prometas aprobación ni consultes bases externas.',
     'El RUT y DICOM son datos sensibles: no los repitas completos en la respuesta. Si el cliente no desea entregarlos, respétalo y ofrece continuar con un ejecutivo.',
-    'Al final de tu respuesta agrega un bloque interno solo cuando el cliente haya confirmado datos nuevos o corregido datos anteriores. Incluye únicamente esos campos, nunca supongas valores:',
+    'Al final de tu respuesta agrega obligatoriamente un bloque interno cuando el cliente haya confirmado datos nuevos o corregido datos anteriores. Este bloque es una excepción autorizada a la regla de responder solo con el mensaje visible. Incluye únicamente esos campos, nunca supongas valores:',
     `${LEAD_PROFILE_START_SENTINEL}{"full_name":"...","rut":"...","phone":"...","city":"...","vehicle_interest":"...","down_payment":"...","income_proof":true,"employment_type":"...","employment_tenure":"...","has_dicom":false,"trade_in":true,"trade_in_vehicle":"...","purchase_timeline":"...","financing_requested":true}${LEAD_PROFILE_END_SENTINEL}`,
     'Los booleanos deben ser true o false. Omite cualquier campo no confirmado. Este bloque no lo verá el cliente.',
   ].join('\n');

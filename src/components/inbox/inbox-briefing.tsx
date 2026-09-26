@@ -15,12 +15,12 @@ export function InboxBriefing({ priorityCount }: InboxBriefingProps) {
   const firstName = profile?.full_name?.trim().split(/\s+/)[0];
 
   return (
-    <section className="border-border/60 bg-background/92 flex shrink-0 flex-col gap-3 border-b px-4 py-3 backdrop-blur-xl lg:flex-row lg:items-center lg:px-6">
-      <div className="min-w-0 lg:w-64 lg:shrink-0">
-        <p className="text-muted-foreground text-[10px] font-black tracking-[0.14em] uppercase">
+    <section className="border-border/60 bg-background/92 flex shrink-0 flex-col gap-2 border-b px-4 py-2 backdrop-blur-xl lg:flex-row lg:items-center">
+      <div className="min-w-0 lg:w-56 lg:shrink-0">
+        <p className="text-muted-foreground text-[9px] font-black tracking-[0.14em] uppercase">
           Tu jornada en Nexora
         </p>
-        <h1 className="text-foreground mt-0.5 truncate text-lg font-bold tracking-[-0.025em]">
+        <h1 className="text-foreground truncate text-base font-bold tracking-[-0.025em]">
           {getChileGreeting()}
           {firstName ? `, ${firstName}` : ''}.
         </h1>

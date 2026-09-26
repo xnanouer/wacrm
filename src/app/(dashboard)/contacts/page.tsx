@@ -355,12 +355,12 @@ export default function ContactsPage() {
             {totalCount > 0 && `${totalCount} contactos en total.`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
           {canEditSettings && (
             <Button
               variant="outline"
               onClick={() => setCustomFieldsOpen(true)}
-              className="border-border text-muted-foreground hover:bg-muted"
+              className="border-border text-muted-foreground hover:bg-muted flex-1 sm:flex-none"
             >
               <SlidersHorizontal className="size-4" />
               Custom fields
@@ -371,7 +371,7 @@ export default function ContactsPage() {
             canAct={canEdit}
             gateReason="add or import contacts"
             onClick={() => setImportOpen(true)}
-            className="border-border text-muted-foreground hover:bg-muted"
+            className="border-border text-muted-foreground hover:bg-muted flex-1 sm:flex-none"
           >
             <Upload className="size-4" />
             Import
@@ -380,7 +380,7 @@ export default function ContactsPage() {
             canAct={canEdit}
             gateReason="add or import contacts"
             onClick={openAddForm}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1 sm:flex-none"
           >
             <Plus className="size-4" />
             Add Contact
@@ -534,8 +534,8 @@ export default function ContactsPage() {
         </div>
       )}
 
-      {/* Table */}
-      <div className="border-border overflow-hidden rounded-lg border">
+      {/* Desktop table */}
+      <div className="border-border hidden overflow-hidden rounded-lg border md:block">
         <Table>
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
@@ -734,6 +734,156 @@ export default function ContactsPage() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Mobile cards keep the same actions without forcing a wide table. */}
+      <div className="border-border bg-card divide-border divide-y overflow-hidden rounded-2xl border md:hidden">
+        {loading ? (
+          <div className="flex min-h-48 flex-col items-center justify-center gap-2 p-6">
+            <Loader2 className="text-primary size-6 animate-spin" />
+            <p className="text-muted-foreground text-sm">
+              Cargando contactos...
+            </p>
+          </div>
+        ) : contacts.length === 0 ? (
+          <div className="flex min-h-48 flex-col items-center justify-center gap-2 p-6 text-center">
+            <Users className="text-muted-foreground size-8" />
+            <p className="text-muted-foreground text-sm">
+              {hasActiveFilters
+                ? 'No hay contactos que coincidan con los filtros.'
+                : 'Todavía no hay contactos.'}
+            </p>
+            {!hasActiveFilters ? (
+              <GatedButton
+                canAct={canEdit}
+                gateReason="add or import contacts"
+                variant="outline"
+                size="sm"
+                onClick={openAddForm}
+                className="mt-2"
+              >
+                <Plus className="size-3.5" />
+                Agregar contacto
+              </GatedButton>
+            ) : null}
+          </div>
+        ) : (
+          contacts.map((contact) => (
+            <article
+              key={contact.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => openDetail(contact.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  openDetail(contact.id);
+                }
+              }}
+              className="hover:bg-muted/35 min-w-0 p-4 transition-colors"
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <div
+                  className="pt-1"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <Checkbox
+                    checked={selected.has(contact.id)}
+                    onCheckedChange={() => toggleSelect(contact.id)}
+                    aria-label={`Seleccionar ${contact.name || contact.phone}`}
+                  />
+                </div>
+                <Avatar className="border-border bg-muted size-11 shrink-0 border">
+                  {contact.avatar_url ? (
+                    <AvatarImage
+                      src={contact.avatar_url}
+                      alt={contact.name || contact.phone}
+                    />
+                  ) : null}
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                    {(contact.name || contact.phone || '?')
+                      .trim()
+                      .charAt(0)
+                      .toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="text-foreground truncate font-semibold">
+                    {contact.name || 'Sin nombre'}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5 truncate font-mono text-xs">
+                    {contact.phone}
+                  </p>
+                  {contact.email || contact.company ? (
+                    <p className="text-muted-foreground mt-1 truncate text-xs">
+                      {[contact.email, contact.company]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  ) : null}
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground"
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                    }
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openEditForm(contact);
+                      }}
+                    >
+                      <Pencil className="size-4" />
+                      Editar
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        confirmDelete(contact);
+                      }}
+                    >
+                      <Trash2 className="size-4" />
+                      Eliminar
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {contact.tags?.length ? (
+                <div className="mt-3 flex flex-wrap gap-1 pl-14">
+                  {contact.tags.slice(0, 4).map((tag) => (
+                    <span
+                      key={tag.id}
+                      className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                      style={{
+                        backgroundColor: `${tag.color}20`,
+                        color: tag.color,
+                      }}
+                    >
+                      {tag.name}
+                    </span>
+                  ))}
+                  {contact.tags.length > 4 ? (
+                    <span className="text-muted-foreground text-[10px]">
+                      +{contact.tags.length - 4}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </article>
+          ))
+        )}
       </div>
 
       {/* Pagination */}

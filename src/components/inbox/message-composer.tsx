@@ -28,6 +28,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useCan } from '@/hooks/use-can';
@@ -617,7 +618,7 @@ export function MessageComposer({
   // ---- Render --------------------------------------------------------
 
   return (
-    <div className="border-border/60 bg-card/95 relative border-t p-5 backdrop-blur-xl sm:px-6">
+    <div className="border-border/60 bg-card/95 relative shrink-0 border-t px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:p-5 sm:px-6">
       <VehicleSharePicker
         open={catalogOpen}
         onOpenChange={setCatalogOpen}
@@ -728,7 +729,7 @@ export function MessageComposer({
           </Button>
         </div>
       ) : (
-        <div className="relative flex items-end gap-3">
+        <div className="relative flex items-end gap-1.5 sm:gap-3">
           {slashMatches.length > 0 ? (
             <div className="border-border bg-popover absolute right-0 bottom-full left-0 z-30 mb-2 overflow-hidden rounded-xl border shadow-xl sm:left-20">
               <div className="border-border text-muted-foreground border-b px-3 py-2 text-[11px] font-semibold tracking-wide uppercase">
@@ -803,6 +804,21 @@ export function MessageComposer({
                   <FileText className="mr-2 h-4 w-4" />
                   Document
                 </DropdownMenuItem>
+                <DropdownMenuSeparator className="sm:hidden" />
+                <DropdownMenuItem
+                  className="sm:hidden"
+                  onClick={onOpenTemplates}
+                >
+                  <LayoutTemplate className="mr-2 h-4 w-4" />
+                  Plantilla
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="sm:hidden"
+                  onClick={() => setCatalogOpen(true)}
+                >
+                  <CarFront className="mr-2 h-4 w-4" />
+                  Vehículo del catálogo
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void startRecording()}>
                   <Mic className="mr-2 h-4 w-4" />
                   Voice note
@@ -818,7 +834,7 @@ export function MessageComposer({
               canAct={!readOnly}
               gateReason="send messages"
               title={readOnly ? undefined : 'Send template'}
-              className="text-muted-foreground hover:text-foreground size-11 shrink-0 p-0"
+              className="text-muted-foreground hover:text-foreground hidden size-11 shrink-0 p-0 sm:inline-flex"
               onClick={onOpenTemplates}
             >
               <LayoutTemplate className="h-4 w-4" />
@@ -832,7 +848,10 @@ export function MessageComposer({
             gateReason="send messages"
             disabled={inputsDisabled}
             title={readOnly ? undefined : 'Enviar vehículo del catálogo'}
-            className="text-muted-foreground hover:text-primary size-11 shrink-0 p-0"
+            className={cn(
+              'text-muted-foreground hover:text-primary size-11 shrink-0 p-0',
+              !textOnly && 'hidden sm:inline-flex'
+            )}
             onClick={() => setCatalogOpen(true)}
           >
             <CarFront className="h-4 w-4" />
@@ -845,7 +864,7 @@ export function MessageComposer({
             gateReason="send messages"
             disabled={drafting}
             title={readOnly ? undefined : 'Draft a reply with AI'}
-            className="text-muted-foreground hover:text-primary size-11 shrink-0 p-0"
+            className="text-muted-foreground hover:text-primary hidden size-11 shrink-0 p-0 sm:inline-flex"
             onClick={handleDraft}
           >
             {drafting ? (
@@ -880,7 +899,7 @@ export function MessageComposer({
                 : undefined
             }
             className={cn(
-              'border-border bg-muted/70 text-foreground placeholder-muted-foreground focus:border-primary/50 flex-1 resize-none rounded-2xl border px-4 py-3 text-base leading-6 transition-colors outline-none',
+              'border-border bg-muted/70 text-foreground placeholder-muted-foreground focus:border-primary/50 min-h-11 min-w-0 flex-1 resize-none rounded-2xl border px-3 py-2.5 text-base leading-6 transition-colors outline-none sm:px-4 sm:py-3',
               (sessionExpired || readOnly) && 'cursor-not-allowed opacity-50'
             )}
           />
@@ -904,7 +923,7 @@ export function MessageComposer({
       {!draft && !recording && (
         <p
           className={cn(
-            'text-muted-foreground mt-1 text-[10px]',
+            'text-muted-foreground mt-1 hidden text-[10px] sm:block',
             textOnly ? 'pl-[2.75rem]' : 'pl-[5.5rem]'
           )}
         >

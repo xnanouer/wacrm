@@ -53,7 +53,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          'bg-popover text-popover-foreground ring-border data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-1.5rem)] -translate-x-1/2 -translate-y-1/2 gap-5 rounded-3xl p-5 text-[15px] shadow-2xl ring-1 shadow-black/25 duration-200 outline-none sm:max-w-md sm:p-6',
+          'bg-popover text-popover-foreground ring-border data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-1rem)] -translate-x-1/2 -translate-y-1/2 gap-5 rounded-2xl p-4 text-[15px] shadow-2xl ring-1 shadow-black/25 duration-200 outline-none sm:max-w-md sm:rounded-3xl sm:p-6',
           className
         )}
         {...props}
@@ -101,7 +101,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        'bg-muted/35 -mx-5 -mb-5 flex flex-col-reverse gap-2.5 rounded-b-3xl border-t p-5 sm:-mx-6 sm:-mb-6 sm:flex-row sm:justify-end sm:p-6',
+        'bg-muted/35 -mx-4 -mb-4 flex flex-col-reverse gap-2.5 rounded-b-2xl border-t p-4 sm:-mx-6 sm:-mb-6 sm:flex-row sm:justify-end sm:rounded-b-3xl sm:p-6',
         className
       )}
       {...props}

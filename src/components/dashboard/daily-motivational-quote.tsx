@@ -67,9 +67,9 @@ export function DailyMotivationalQuoteCard({
 
   if (variant === 'inbox') {
     return (
-      <figure className="border-primary/12 bg-primary/5 flex min-w-0 items-center gap-3 rounded-2xl border px-3.5 py-2.5">
-        <span className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-xl">
-          <Sparkles className="size-4" />
+      <figure className="border-primary/12 bg-primary/5 flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-1.5">
+        <span className="bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-lg">
+          <Sparkles className="size-3.5" />
         </span>
         <div className="min-w-0">
           <figcaption className="text-primary text-[9px] font-black tracking-[0.14em] uppercase">

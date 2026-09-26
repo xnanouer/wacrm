@@ -67,7 +67,7 @@ https://crm.tudominio.com/api/meta/webhook
 ```
 
 Usa exactamente `META_WEBHOOK_VERIFY_TOKEN` como token de verificación.
-Suscribe el objeto **Page** a `messages` y `messaging_feedback`, y el objeto
+Suscribe el objeto **Page** a `messages`, y el objeto
 **Instagram** a `messages`, `messaging_postbacks`, `messaging_seen` y
 `message_reactions`.
 

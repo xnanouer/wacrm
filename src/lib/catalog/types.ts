@@ -1,5 +1,14 @@
 import type { CatalogStatus } from './config';
 
+export interface CatalogVehicleImage {
+  id: string;
+  url: string | null;
+  altText: string;
+  byteSize: number;
+  sortOrder: number;
+  isPrimary: boolean;
+}
+
 export interface CatalogVehicle {
   id: string;
   internalCode: string;
@@ -28,6 +37,7 @@ export interface CatalogVehicle {
   imageCount: number;
   photoTone: string;
   photoUrl?: string | null;
+  images?: CatalogVehicleImage[];
 }
 
 export interface CatalogUsage {

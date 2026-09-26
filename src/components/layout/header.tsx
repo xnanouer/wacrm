@@ -78,14 +78,14 @@ export function Header({ onOpenSidebar }: HeaderProps) {
     'U';
 
   return (
-    <header className="border-border/60 bg-background/76 supports-[backdrop-filter]:bg-background/64 flex h-[84px] shrink-0 items-center justify-between gap-5 border-b px-4 shadow-[0_1px_0_color-mix(in_oklab,white_5%,transparent)_inset] backdrop-blur-2xl sm:px-7 lg:px-10 xl:px-12">
+    <header className="border-border/60 bg-background/76 supports-[backdrop-filter]:bg-background/64 flex h-[72px] shrink-0 items-center justify-between gap-3 border-b px-4 shadow-[0_1px_0_color-mix(in_oklab,white_5%,transparent)_inset] backdrop-blur-2xl sm:px-7 md:h-[84px] lg:px-10 xl:px-12">
       <div className="flex min-w-0 items-center gap-4">
         {/* Hamburger — mobile only. 44×44 hit target per Apple HIG. */}
         <button
           type="button"
           onClick={onOpenSidebar}
           aria-label="Open menu"
-          className="border-border/70 bg-card/70 text-muted-foreground hover:bg-muted hover:text-foreground flex size-10 items-center justify-center rounded-xl border transition-colors lg:hidden"
+          className="border-border/70 bg-card/70 text-muted-foreground hover:bg-muted hover:text-foreground hidden size-11 items-center justify-center rounded-xl border transition-colors md:flex lg:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>

@@ -35,6 +35,7 @@ export async function sendSocialMessageToConversation(
     messageType: string;
     contentText?: string | null;
     replyToMessageId?: string | null;
+    senderId?: string | null;
   }
 ): Promise<{ messageId: string; metaMessageId: string }> {
   const text = input.contentText?.trim();
@@ -134,6 +135,7 @@ export async function sendSocialMessageToConversation(
     .insert({
       conversation_id: conversation.id,
       sender_type: 'agent',
+      sender_id: input.senderId || null,
       content_type: 'text',
       content_text: text,
       message_id: metaMessageId,

@@ -30,7 +30,7 @@ function offlineStatus(error: unknown): WhatsAppWebSessionStatus & {
     phone: null,
     displayName: null,
     lastError: isWhatsAppWebServiceOffline(error)
-      ? 'El servicio de WhatsApp por QR no está ejecutándose. Reinicia Nexora con npm run dev.'
+      ? 'El servicio de WhatsApp por QR no está disponible. Intenta actualizar en unos segundos o contacta al administrador.'
       : error instanceof Error
         ? error.message
         : 'No se pudo consultar la sesión.',

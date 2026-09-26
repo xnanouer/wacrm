@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { generateReply, parseGeneration } from './generate';
+import {
+  generateLeadProfilePatch,
+  generateReply,
+  parseGeneration,
+} from './generate';
 import { AI_CONFIG_RUNTIME_DEFAULTS, AiError, type AiConfig } from './types';
 
 function config(overrides: Partial<AiConfig> = {}): AiConfig {
@@ -155,6 +159,37 @@ describe('generateReply — OpenAI', () => {
         messages: [{ role: 'user', content: 'Hi' }],
       })
     ).rejects.toBeInstanceOf(AiError);
+  });
+});
+
+describe('generateLeadProfilePatch', () => {
+  it('runs the dedicated JSON extraction pass', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        okResponse({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"city":"Santiago","employment_type":"Contrato indefinido"}',
+              },
+            },
+          ],
+        })
+      )
+    );
+
+    await expect(
+      generateLeadProfilePatch({
+        config: config(),
+        systemPrompt: 'Extract confirmed lead facts as JSON.',
+        messages: [{ role: 'user', content: 'Estoy en Santiago.' }],
+      })
+    ).resolves.toEqual({
+      city: 'Santiago',
+      employment_type: 'Contrato indefinido',
+    });
   });
 });
 

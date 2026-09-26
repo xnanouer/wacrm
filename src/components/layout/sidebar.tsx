@@ -243,11 +243,11 @@ export function Sidebar({
       <aside
         className={cn(
           // Mobile: fixed drawer that slides in from the left.
-          'border-sidebar-border/70 bg-sidebar/94 fixed inset-y-0 left-0 z-40 flex h-full w-[304px] flex-col border-r shadow-2xl shadow-black/20 backdrop-blur-2xl',
+          'border-sidebar-border/70 bg-sidebar/94 fixed inset-y-0 left-0 z-40 flex h-dvh w-[min(88vw,304px)] flex-col border-r pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-2xl shadow-black/20 backdrop-blur-2xl',
           'transition-transform duration-200 ease-out will-change-transform',
           open ? 'translate-x-0' : '-translate-x-full',
           // Desktop: static, always visible — reset all the mobile framing.
-          'lg:static lg:z-0 lg:w-[304px] lg:translate-x-0 lg:shadow-none lg:transition-none'
+          'lg:static lg:z-0 lg:h-full lg:w-[304px] lg:translate-x-0 lg:pt-0 lg:pb-0 lg:shadow-none lg:transition-none'
         )}
         aria-label="Primary"
       >

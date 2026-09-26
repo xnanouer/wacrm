@@ -41,6 +41,7 @@ import {
   RotateCcw,
   StickyNote,
   Loader2,
+  LockKeyhole,
   PanelRightOpen,
   PanelRightClose,
   Tags,
@@ -49,6 +50,7 @@ import {
   BrainCircuit,
   Bot,
   UserCheck,
+  Info,
 } from 'lucide-react';
 import { format, isToday, isYesterday, differenceInHours } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -98,6 +100,7 @@ import {
 } from '@/components/ui/sheet';
 import { QuotationEditor } from '@/components/quotes/quotation-editor';
 import { getConversationAiIndicator } from '@/lib/ai/conversation-state';
+import { messageSenderLabel } from '@/lib/inbox/message-sender-label';
 
 interface ReplyDraft {
   id: string;
@@ -156,6 +159,8 @@ interface MessageThreadProps {
    */
   contactPanelOpen?: boolean;
   onToggleContactPanel?: () => void;
+  /** Opens the customer record as the third mobile inbox screen. */
+  onOpenContactPanel?: () => void;
 }
 
 function formatDateSeparator(dateStr: string): string {
@@ -219,6 +224,7 @@ export function MessageThread({
   onRefresh,
   contactPanelOpen,
   onToggleContactPanel,
+  onOpenContactPanel,
 }: MessageThreadProps) {
   const router = useRouter();
   const { user, accountRole } = useAuth();
@@ -589,6 +595,7 @@ export function MessageThread({
         id: tempId,
         conversation_id: conversation.id,
         sender_type: 'agent',
+        sender_id: user?.id,
         content_type: 'text',
         content_text: text,
         status: 'sending',
@@ -632,7 +639,7 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: 'failed' });
       }
     },
-    [conversation, onNewMessage, onUpdateMessage]
+    [conversation, onNewMessage, onUpdateMessage, user?.id]
   );
 
   const handleSendMedia = useCallback(
@@ -652,6 +659,7 @@ export function MessageThread({
         id: tempId,
         conversation_id: conversation.id,
         sender_type: 'agent',
+        sender_id: user?.id,
         content_type: payload.kind,
         content_text: contentText,
         media_url: payload.mediaUrl,
@@ -702,7 +710,7 @@ export function MessageThread({
         );
       }
     },
-    [conversation, onNewMessage, onUpdateMessage]
+    [conversation, onNewMessage, onUpdateMessage, user?.id]
   );
 
   const performTicketAction = useCallback(
@@ -890,6 +898,7 @@ export function MessageThread({
         id: tempId,
         conversation_id: conversation.id,
         sender_type: 'agent',
+        sender_id: user?.id,
         content_type: 'template',
         content_text: renderedBody,
         template_name: template.name,
@@ -939,7 +948,7 @@ export function MessageThread({
         onUpdateMessage(tempId, { status: 'failed' });
       }
     },
-    [conversation, onNewMessage, onUpdateMessage]
+    [conversation, onNewMessage, onUpdateMessage, user?.id]
   );
 
   // Build a quick id → Message map so reply quotes can be rendered without
@@ -961,16 +970,24 @@ export function MessageThread({
     return map;
   }, [reactions]);
 
-  const contactDisplayName = contact?.name || contact?.phone || 'Customer';
+  const senderLabelFor = useCallback(
+    (message: Message): string =>
+      messageSenderLabel({
+        message,
+        contact,
+        profiles,
+        assignedAgentId: conversation?.assigned_agent_id,
+      }),
+    [contact, conversation?.assigned_agent_id, profiles]
+  );
 
-  // Author label for a quoted message: "You" when we sent the parent,
-  // contact name when the customer sent it.
+  // Reuse the visible sender label inside reply quotes so the attribution is
+  // consistent between the original bubble and its quoted preview.
   const authorLabelFor = useCallback(
     (m: Message): string => {
-      const isAgentMsg = m.sender_type === 'agent' || m.sender_type === 'bot';
-      return isAgentMsg ? 'You' : contactDisplayName;
+      return senderLabelFor(m);
     },
-    [contactDisplayName]
+    [senderLabelFor]
   );
 
   const handleStartReply = useCallback(
@@ -1103,8 +1120,11 @@ export function MessageThread({
   const assignedAgentId = conversation.assigned_agent_id ?? null;
   const currentAssignee = profiles.find((p) => p.user_id === assignedAgentId);
   const assignLabel = assignedAgentId
-    ? (currentAssignee?.full_name ?? 'Assigned')
-    : 'Assign';
+    ? (currentAssignee?.full_name ?? 'Ejecutivo asignado')
+    : 'Asignar';
+  const leadOwnedByCurrentUser = assignedAgentId === user?.id;
+  const canTakeLead =
+    conversation.status === 'pending' && assignedAgentId === null;
   const currentDepartment = departments.find(
     (department) => department.id === conversation.department_id
   );
@@ -1135,7 +1155,10 @@ export function MessageThread({
     // root shrink lets the bubbles' break-words / max-w caps apply.
     // Issue #257.
     <div
-      className={cn('relative flex min-w-0 flex-1 flex-col', DOODLE_BG_CLASSES)}
+      className={cn(
+        'relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
+        DOODLE_BG_CLASSES
+      )}
       onDragEnter={handleFileDragEnter}
       onDragOver={handleFileDragOver}
       onDragLeave={handleFileDragLeave}
@@ -1158,7 +1181,7 @@ export function MessageThread({
       )}
       {/* Header — solid card surface sits on top of the doodle so the
           name/avatar/dropdowns stay legible. */}
-      <div className="border-border/60 bg-card/95 flex min-h-[84px] items-center justify-between gap-4 border-b px-5 py-4 backdrop-blur-xl sm:px-6">
+      <div className="border-border/60 bg-card/95 flex shrink-0 flex-col gap-1.5 border-b px-2.5 py-2 backdrop-blur-xl sm:gap-2 sm:px-4 sm:py-2.5">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {/* Back-to-list button — mobile only. Hidden on lg+ where the
               conversation list is always visible next to the thread. */}
@@ -1167,16 +1190,16 @@ export function MessageThread({
               type="button"
               onClick={onBack}
               aria-label="Back to conversations"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md lg:hidden"
+              className="text-muted-foreground hover:bg-muted hover:text-foreground flex size-10 flex-shrink-0 items-center justify-center rounded-xl sm:size-11 lg:hidden"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
-          <div className="bg-muted text-foreground flex size-12 flex-shrink-0 items-center justify-center rounded-full text-base font-semibold">
+          <div className="bg-muted text-foreground flex size-9 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold sm:size-10">
             {displayName.charAt(0).toUpperCase()}
           </div>
-          <div className="min-w-0">
-            <h2 className="text-foreground truncate text-lg font-semibold tracking-[-0.025em]">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-foreground truncate text-base font-semibold tracking-[-0.025em]">
               {displayName}
             </h2>
             <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-sm">
@@ -1186,7 +1209,7 @@ export function MessageThread({
               {conversationChannel === 'whatsapp' &&
                 conversation.whatsapp_config?.connection_name && (
                   <span
-                    className="border-primary/25 bg-primary/8 text-primary max-w-28 truncate rounded-full border px-2 py-0.5 text-[10px] font-medium"
+                    className="border-primary/25 bg-primary/8 text-primary hidden max-w-28 truncate rounded-full border px-2 py-0.5 text-[10px] font-medium sm:inline"
                     title={
                       conversation.whatsapp_config.display_phone
                         ? `${conversation.whatsapp_config.connection_name} · +${conversation.whatsapp_config.display_phone}`
@@ -1223,9 +1246,20 @@ export function MessageThread({
               {aiIndicator.label}
             </Badge>
           )}
+          {onOpenContactPanel ? (
+            <button
+              type="button"
+              onClick={onOpenContactPanel}
+              aria-label="Abrir ficha del cliente"
+              title="Ficha del cliente"
+              className="text-muted-foreground hover:bg-muted hover:text-foreground ml-auto flex size-10 shrink-0 items-center justify-center rounded-xl sm:size-11 lg:hidden"
+            >
+              <Info className="size-5" />
+            </button>
+          ) : null}
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="border-border/50 -mx-2.5 flex min-w-0 [scrollbar-width:none] flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain border-t px-2.5 pt-2 pb-0.5 sm:mx-0 sm:gap-2 sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden">
           {/* Contact-panel toggle — desktop only. The contact sidebar
               eats a chunk of horizontal width that crowds the thread on
               smaller laptops; this lets agents reclaim it when they just
@@ -1266,7 +1300,7 @@ export function MessageThread({
               aria-label="Refresh conversation"
               title="Refresh"
               className={cn(
-                'text-muted-foreground hover:bg-muted hover:text-foreground inline-flex size-9 items-center justify-center rounded-xl transition-colors disabled:opacity-60'
+                'text-muted-foreground hover:bg-muted hover:text-foreground inline-flex size-11 items-center justify-center rounded-xl transition-colors disabled:opacity-60 sm:size-9'
               )}
             >
               <RefreshCw
@@ -1277,7 +1311,7 @@ export function MessageThread({
 
           {/* Status dropdown */}
           <DropdownMenu>
-            <DropdownMenuTrigger className="hover:bg-muted inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-2">
+            <DropdownMenuTrigger className="hover:bg-muted inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-2 whitespace-nowrap sm:h-9">
               <TicketStatusBadge status={conversation.status} />
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
@@ -1302,6 +1336,49 @@ export function MessageThread({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {canTakeLead ? (
+            <button
+              type="button"
+              onClick={async () => {
+                const ticket = await performTicketAction({ action: 'accept' });
+                if (ticket) {
+                  toast.success(
+                    'Lead tomado y protegido. Si el cliente vuelve después de resolverlo, regresará a tu bandeja.'
+                  );
+                }
+              }}
+              disabled={ticketActionLoading}
+              title="Asignarte este lead y proteger la conversación para ti"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-bold whitespace-nowrap shadow-sm disabled:opacity-60 sm:h-9"
+            >
+              {ticketActionLoading ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <LockKeyhole className="size-3.5" />
+              )}
+              Tomar lead
+            </button>
+          ) : assignedAgentId ? (
+            <span
+              className={cn(
+                'inline-flex h-11 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-semibold whitespace-nowrap sm:h-9',
+                leadOwnedByCurrentUser
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : 'border-border bg-muted/50 text-muted-foreground'
+              )}
+              title={
+                leadOwnedByCurrentUser
+                  ? 'Este lead está asignado a ti y volverá a tu bandeja si el cliente escribe nuevamente'
+                  : `Lead protegido para ${assignLabel}`
+              }
+            >
+              <LockKeyhole className="size-3.5" />
+              {leadOwnedByCurrentUser
+                ? 'Lead protegido'
+                : `Atiende: ${assignLabel}`}
+            </span>
+          ) : null}
+
           <button
             type="button"
             disabled={!canControlAi || ticketActionLoading}
@@ -1323,7 +1400,7 @@ export function MessageThread({
                 : 'Mantener al ejecutivo asignado y delegar temporalmente a la IA'
             }
             className={cn(
-              'inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+              'inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9',
               aiHandling
                 ? 'bg-emerald-500 text-white hover:bg-emerald-600'
                 : 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 border'
@@ -1342,7 +1419,7 @@ export function MessageThread({
           <button
             type="button"
             onClick={() => setQuotationOpen(true)}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/25 inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/25 inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-bold whitespace-nowrap shadow-lg transition-all hover:-translate-y-0.5 sm:h-9"
           >
             <ReceiptText className="size-4" />
             Cotizar
@@ -1352,13 +1429,13 @@ export function MessageThread({
           <DropdownMenu>
             <DropdownMenuTrigger
               className={cn(
-                'hover:bg-muted inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3 text-sm',
+                'hover:bg-muted inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm whitespace-nowrap',
                 assignedAgentId ? 'text-primary' : 'text-muted-foreground'
               )}
             >
               <UserPlus className="h-3 w-3" />
-              <span className="hidden max-w-24 truncate sm:inline">
-                {assignLabel === 'Assign' ? 'Asignar' : assignLabel}
+              <span className="hidden max-w-28 truncate sm:inline">
+                {assignLabel}
               </span>
               <ChevronDown className="h-3 w-3" />
             </DropdownMenuTrigger>
@@ -1424,10 +1501,10 @@ export function MessageThread({
         </div>
       </div>
 
-      <div className="border-border/60 bg-card/92 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-5 py-3 sm:px-6">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="border-border/60 bg-card/92 flex shrink-0 [scrollbar-width:none] flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain border-b px-2.5 py-1.5 sm:px-5 sm:py-2 [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-w-max flex-nowrap items-center gap-2">
           <DropdownMenu>
-            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm">
+            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm">
               <Building2 className="size-3.5" />
               <span className="max-w-32 truncate">
                 {currentDepartment?.name ?? 'Sin departamento'}
@@ -1457,24 +1534,8 @@ export function MessageThread({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {conversation.status === 'pending' && (
-            <button
-              type="button"
-              onClick={() => performTicketAction({ action: 'accept' })}
-              disabled={ticketActionLoading}
-              className="bg-primary text-primary-foreground hover:bg-primary-hover inline-flex h-10 items-center gap-2 rounded-xl px-3 text-sm font-semibold"
-            >
-              {ticketActionLoading ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Check className="size-3.5" />
-              )}
-              Aceptar
-            </button>
-          )}
-
           <DropdownMenu>
-            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm">
+            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm">
               <ArrowRightLeft className="size-3.5" />
               Transferir
               <ChevronDown className="size-3" />
@@ -1509,7 +1570,7 @@ export function MessageThread({
                 conversation.status === 'waiting' ? 'open' : 'waiting'
               )
             }
-            className="border-border text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className="border-border text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
             <PauseCircle className="size-3.5" />
             {conversation.status === 'waiting' ? 'Retomar' : 'En espera'}
@@ -1519,7 +1580,7 @@ export function MessageThread({
             <button
               type="button"
               onClick={() => handleStatusChange('open')}
-              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium"
+              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium"
             >
               <RotateCcw className="size-3.5" />
               Reabrir
@@ -1536,7 +1597,7 @@ export function MessageThread({
                   ? 'Primero debes aceptar el ticket'
                   : 'Resolver con etiqueta y nota obligatorias'
               }
-              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
             >
               <CheckCircle2 className="size-3.5" />
               Resolver
@@ -1544,7 +1605,7 @@ export function MessageThread({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <QuickReplyPicker
             departmentId={conversation.department_id}
             onSelect={(reply: QuickReply) =>
@@ -1561,7 +1622,7 @@ export function MessageThread({
             }}
             disabled={!onToggleContactPanel}
             title="Las notas internas están en la ficha del cliente"
-            className="text-muted-foreground hover:bg-muted hover:text-foreground hidden h-10 items-center gap-2 rounded-xl px-3 text-sm disabled:opacity-50 xl:inline-flex"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground hidden h-9 items-center gap-2 rounded-xl px-3 text-sm disabled:opacity-50 xl:inline-flex"
           >
             <StickyNote className="size-3.5" />
             Notas internas
@@ -1572,7 +1633,7 @@ export function MessageThread({
               onClick={handleCoachAnalysis}
               disabled={coachActionLoading}
               title="Analiza solo las respuestas humanas de esta conversacion"
-              className="border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 hidden h-10 items-center gap-2 rounded-xl border px-3 text-sm font-semibold disabled:opacity-50 xl:inline-flex"
+              className="border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 hidden h-9 items-center gap-2 rounded-xl border px-3 text-sm font-semibold disabled:opacity-50 xl:inline-flex"
             >
               {coachActionLoading ? (
                 <Loader2 className="size-3.5 animate-spin" />
@@ -1616,7 +1677,10 @@ export function MessageThread({
       )}
 
       {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-5"
+      >
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-primary h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
@@ -1629,11 +1693,11 @@ export function MessageThread({
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {messageGroups.map((group) => (
               <div key={group.date}>
                 {/* Date separator */}
-                <div className="mb-4 flex items-center justify-center">
+                <div className="mb-3 flex items-center justify-center">
                   <span className="bg-muted text-muted-foreground rounded-full px-3 py-1 text-[10px] font-medium">
                     {formatDateSeparator(group.date)}
                   </span>
@@ -1673,6 +1737,7 @@ export function MessageThread({
                       >
                         <MessageBubble
                           message={msg}
+                          senderLabel={senderLabelFor(msg)}
                           reply={reply}
                           reactions={msgReactions}
                           currentUserId={user?.id}

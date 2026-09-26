@@ -3,6 +3,7 @@ import {
   type AiConfig,
   type ChatMessage,
   type GenerateResult,
+  type LeadProfilePatch,
 } from './types';
 import {
   AUDIO_REPLY_SENTINEL,
@@ -11,7 +12,11 @@ import {
 } from './defaults';
 import { generateOpenAi } from './providers/openai';
 import { generateAnthropic } from './providers/anthropic';
-import { extractLeadProfilePatch, stripLeadProfileBlock } from './lead-profile';
+import {
+  extractLeadProfilePatch,
+  parseLeadProfileJson,
+  stripLeadProfileBlock,
+} from './lead-profile';
 
 export interface GenerateArgs {
   config: AiConfig;
@@ -21,14 +26,7 @@ export interface GenerateArgs {
   messages: ChatMessage[];
 }
 
-/**
- * Generate the next reply from the account's configured provider.
- * Dispatches to the right adapter, then parses the handoff sentinel out
- * of the raw text. Throws `AiError` on any provider/network failure.
- */
-export async function generateReply(
-  args: GenerateArgs
-): Promise<GenerateResult> {
+async function generateRaw(args: GenerateArgs): Promise<string> {
   const { config, systemPrompt, messages } = args;
   const timeoutMs = aiRequestTimeoutMs();
   const providerArgs = {
@@ -39,22 +37,37 @@ export async function generateReply(
     timeoutMs,
   };
 
-  let raw: string;
   switch (config.provider) {
     case 'openai':
-      raw = await generateOpenAi(providerArgs);
-      break;
+      return generateOpenAi(providerArgs);
     case 'anthropic':
-      raw = await generateAnthropic(providerArgs);
-      break;
+      return generateAnthropic(providerArgs);
     default:
       throw new AiError(`Unsupported AI provider: ${config.provider}`, {
         code: 'unsupported_provider',
         status: 400,
       });
   }
+}
 
-  return parseGeneration(raw);
+/**
+ * Generate the next reply from the account's configured provider.
+ * Dispatches to the right adapter, then parses the handoff sentinel out
+ * of the raw text. Throws `AiError` on any provider/network failure.
+ */
+export async function generateReply(
+  args: GenerateArgs
+): Promise<GenerateResult> {
+  return parseGeneration(await generateRaw(args));
+}
+
+/** A small second pass used only when the reply model omitted Nexora's
+ * private lead-profile block. Keeping this separate from the customer reply
+ * prevents a formatting miss from losing facts the customer already gave. */
+export async function generateLeadProfilePatch(
+  args: GenerateArgs
+): Promise<LeadProfilePatch> {
+  return parseLeadProfileJson(await generateRaw(args));
 }
 
 /**

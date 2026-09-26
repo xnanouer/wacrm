@@ -272,6 +272,7 @@ export async function POST(request: Request, { params }: RouteContext) {
           messageType: 'text',
           contentText: messageText,
           senderType: 'agent',
+          senderId: ctx.userId,
           pauseFlows: true,
         }
       );
@@ -302,6 +303,7 @@ export async function POST(request: Request, { params }: RouteContext) {
               filename: `${safeFilename(quotation.quoteNumber)}.pdf`,
               contentText: `Cotización ${quotation.quoteNumber}`,
               senderType: 'agent',
+              senderId: ctx.userId,
               pauseFlows: true,
             }
           );
@@ -336,6 +338,7 @@ export async function POST(request: Request, { params }: RouteContext) {
               mediaUrl: signed.signedUrl,
               contentText: `Cotización ${quotation.quoteNumber}`,
               senderType: 'agent',
+              senderId: ctx.userId,
               pauseFlows: true,
             }
           );

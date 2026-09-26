@@ -54,6 +54,7 @@ interface ContactSidebarProps {
   contact: Contact | null;
   conversation: Conversation | null;
   onTagsChanged?: (tags: Tag[]) => void;
+  onClose?: () => void;
 }
 
 function ticketEventLabel(event: TicketEvent): string {
@@ -82,6 +83,7 @@ export function ContactSidebar({
   contact,
   conversation,
   onTagsChanged,
+  onClose,
 }: ContactSidebarProps) {
   const { accountId } = useAuth();
   const canApplyTags = useCan('send-messages');
@@ -246,7 +248,7 @@ export function ContactSidebar({
 
   if (!contact) {
     return (
-      <div className="border-border/60 bg-card/95 flex h-full w-[22rem] items-center justify-center border-l xl:w-[25rem]">
+      <div className="border-border/60 bg-card/95 flex h-full w-full items-center justify-center border-l md:w-[22rem] xl:w-[25rem]">
         <p className="text-muted-foreground text-sm">
           Selecciona una conversación
         </p>
@@ -322,7 +324,7 @@ export function ContactSidebar({
   }
 
   return (
-    <div className="border-border/60 bg-card/95 flex h-full w-[22rem] flex-col border-l backdrop-blur-xl xl:w-[25rem]">
+    <div className="border-border/60 bg-card/95 flex h-full w-full min-w-0 flex-col border-l backdrop-blur-xl md:w-[22rem] xl:w-[25rem]">
       <div className="border-border/60 flex h-[72px] shrink-0 items-center justify-between border-b px-5">
         <div>
           <h2 className="text-foreground text-lg font-semibold tracking-[-0.02em]">
@@ -332,9 +334,21 @@ export function ContactSidebar({
             Contexto comercial y de atención
           </p>
         </div>
-        <span className="border-border bg-background text-muted-foreground rounded-full border px-2 py-1 text-[10px]">
-          Cliente
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="border-border bg-background text-muted-foreground rounded-full border px-2 py-1 text-[10px]">
+            Cliente
+          </span>
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Cerrar ficha del cliente"
+              className="text-muted-foreground hover:bg-muted hover:text-foreground flex size-11 items-center justify-center rounded-xl lg:hidden"
+            >
+              <X className="size-5" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">

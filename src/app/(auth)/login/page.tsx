@@ -36,6 +36,7 @@ function LoginPageInner() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [syncingSession, setSyncingSession] = useState(false);
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -54,9 +55,51 @@ function LoginPageInner() {
       });
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
+        sessionClockDelayMs?: number;
       };
       if (!response.ok) {
         throw new Error(payload.error || 'No se pudo iniciar sesión');
+      }
+
+      // Supabase Auth and PostgREST can briefly disagree about the issue time
+      // of a brand-new JWT. Entering a protected page during that window makes
+      // it look as though login failed and sends the user back to this form.
+      // Keep the fresh cookie and wait until the account endpoint accepts it.
+      setSyncingSession(true);
+      const serverDelay =
+        typeof payload.sessionClockDelayMs === 'number' &&
+        Number.isFinite(payload.sessionClockDelayMs)
+          ? Math.max(0, Math.min(payload.sessionClockDelayMs, 5 * 60_000))
+          : 0;
+      if (serverDelay > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, serverDelay));
+      }
+
+      const retryDelays = [
+        0, 750, 1_000, 1_500, 2_000, 3_000, 5_000, 8_000, 13_000, 21_000,
+        30_000,
+      ];
+      let sessionReady = false;
+      for (const delayMs of retryDelays) {
+        if (delayMs > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+        }
+
+        const readinessResponse = await fetch('/api/account', {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'same-origin',
+        }).catch(() => null);
+        if (readinessResponse?.ok) {
+          sessionReady = true;
+          break;
+        }
+      }
+
+      if (!sessionReady) {
+        throw new Error(
+          'La sesión se creó, pero el servidor aún la está sincronizando. Espera unos segundos e intenta ingresar nuevamente.'
+        );
       }
 
       window.location.assign(
@@ -71,6 +114,7 @@ function LoginPageInner() {
             : 'No se pudo iniciar sesión'
       );
       setLoading(false);
+      setSyncingSession(false);
     } finally {
       window.clearTimeout(timeout);
     }
@@ -189,7 +233,11 @@ function LoginPageInner() {
                 disabled={loading}
                 className="bg-primary text-primary-foreground shadow-primary/25 hover:bg-primary-hover h-[54px] w-full rounded-2xl text-base font-bold shadow-xl transition-transform hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-55"
               >
-                {loading ? 'Ingresando...' : 'Ingresar'}
+                {syncingSession
+                  ? 'Sincronizando sesión...'
+                  : loading
+                    ? 'Ingresando...'
+                    : 'Ingresar'}
                 {!loading && <ArrowRight className="size-4" />}
               </Button>
             </form>

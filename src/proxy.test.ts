@@ -12,6 +12,8 @@ let mockUser: { id: string } | null = null;
 let mockAccountRole = 'admin';
 let mockAccountId = 'account-1';
 let mockOnboardingCompleted = true;
+let mockProfileError: { code: string; message: string } | null = null;
+let mockAccountError: { code: string; message: string } | null = null;
 let refreshedCookies: Array<{
   name: string;
   value: string;
@@ -46,7 +48,7 @@ vi.mock('@supabase/ssr', () => ({
                     account_id: mockAccountId,
                     account_role: mockAccountRole,
                   },
-            error: null,
+            error: table === 'accounts' ? mockAccountError : mockProfileError,
           }),
         }),
       }),
@@ -64,6 +66,8 @@ beforeEach(() => {
   mockAccountRole = 'admin';
   mockAccountId = 'account-1';
   mockOnboardingCompleted = true;
+  mockProfileError = null;
+  mockAccountError = null;
   refreshedCookies = [];
 });
 
@@ -147,6 +151,23 @@ describe('middleware — refreshed auth cookies survive redirects', () => {
     const res = await proxy(new NextRequest('https://app.test/inbox'));
 
     expect(res.headers.get('location')).toBeNull();
+  });
+
+  it('clears a future-issued JWT and redirects to a clean login', async () => {
+    mockUser = { id: 'user-1' };
+    mockProfileError = {
+      code: 'PGRST303',
+      message: 'JWT issued at future',
+    };
+
+    const request = new NextRequest('https://app.test/inbox', {
+      headers: { cookie: 'sb-test-auth-token=invalid-token' },
+    });
+    const res = await proxy(request);
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('https://app.test/login');
+    expect(res.cookies.get('sb-test-auth-token')?.value).toBe('');
   });
 
   it('allows an agent to open the catalog interface', async () => {

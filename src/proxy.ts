@@ -40,6 +40,24 @@ export async function proxy(request: NextRequest) {
     }
   );
 
+  const clearSupabaseAuthCookies = () => {
+    request.cookies.getAll().forEach(({ name }) => {
+      if (!name.startsWith('sb-') || !name.includes('-auth-token')) return;
+      request.cookies.delete(name);
+      supabaseResponse.cookies.set(name, '', {
+        ...SUPABASE_COOKIE_OPTIONS,
+        expires: new Date(0),
+        maxAge: 0,
+      });
+    });
+  };
+
+  const isFutureJwtError = (
+    error: { code?: string; message?: string } | null
+  ) =>
+    error?.code === 'PGRST303' &&
+    error.message?.toLowerCase().includes('jwt issued at future');
+
   const {
     data: { user },
     error: authError,
@@ -50,15 +68,7 @@ export async function proxy(request: NextRequest) {
   // family so the browser can start a clean login instead of replaying the
   // same consumed token on every request.
   if (authError?.code === 'refresh_token_not_found') {
-    request.cookies.getAll().forEach(({ name }) => {
-      if (!name.startsWith('sb-') || !name.includes('-auth-token')) return;
-      request.cookies.delete(name);
-      supabaseResponse.cookies.set(name, '', {
-        ...SUPABASE_COOKIE_OPTIONS,
-        expires: new Date(0),
-        maxAge: 0,
-      });
-    });
+    clearSupabaseAuthCookies();
   }
 
   // getUser() transparently refreshes an expired access token, which
@@ -141,19 +151,41 @@ export async function proxy(request: NextRequest) {
     (path) => pathname === path || pathname.startsWith(`${path}/`)
   );
   if (user && isProtectedDocument) {
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('account_id, account_role')
       .eq('user_id', user.id)
       .maybeSingle();
+
+    // Occasionally an upstream auth node can issue a token a few seconds
+    // ahead of the database node. Replaying that cookie makes every protected
+    // page crash with PGRST303 until the browser storage is cleared manually.
+    // Fail closed and start a clean login instead of rendering a server error.
+    if (isFutureJwtError(profileError)) {
+      clearSupabaseAuthCookies();
+      const url = request.nextUrl.clone();
+      url.pathname = '/login';
+      url.search = '';
+      return withRefreshedCookies(NextResponse.redirect(url));
+    }
+
     const role = profile?.account_role;
     let onboardingCompleted = true;
     if (profile?.account_id) {
-      const { data: account } = await supabase
+      const { data: account, error: accountError } = await supabase
         .from('accounts')
         .select('onboarding_completed')
         .eq('id', profile.account_id)
         .maybeSingle();
+
+      if (isFutureJwtError(accountError)) {
+        clearSupabaseAuthCookies();
+        const url = request.nextUrl.clone();
+        url.pathname = '/login';
+        url.search = '';
+        return withRefreshedCookies(NextResponse.redirect(url));
+      }
+
       onboardingCompleted = account?.onboarding_completed !== false;
     }
 

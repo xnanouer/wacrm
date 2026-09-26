@@ -26,9 +26,12 @@ import { ReplyQuote } from './reply-quote';
 import { MessageReactions } from './message-reactions';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { privateMediaViewUrl } from '@/lib/storage/private-media-reference';
+import { visibleMediaText } from '@/lib/inbox/media-text';
 
 interface MessageBubbleProps {
   message: Message;
+  /** Visible author name, resolved by the thread from contact/team data. */
+  senderLabel?: string;
   /** Pre-computed quote info for messages that reply to another. */
   reply?: { authorLabel: string; preview: string } | null;
   reactions?: MessageReaction[];
@@ -82,7 +85,7 @@ function MediaUnavailable({ label }: { label: string }) {
   return (
     <div className="bg-muted/40 text-muted-foreground flex items-center gap-2 rounded-xl px-3 py-2 text-sm">
       <ImageOff className="text-muted-foreground h-4 w-4 shrink-0" />
-      <span>{label} unavailable</span>
+      <span>No se pudo mostrar {label.toLowerCase()}</span>
     </div>
   );
 }
@@ -112,6 +115,20 @@ function safeFileName(value: string, fallback: string): string {
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned || fallback;
+}
+
+function imageFileName(messageId: string, mediaUrl: string): string {
+  let extension = 'jpg';
+  try {
+    const parsed = new URL(mediaUrl, 'https://nexora.invalid');
+    const path = parsed.searchParams.get('path') || parsed.pathname;
+    const match = path.match(/\.(jpe?g|png|webp|gif|avif)$/i);
+    if (match?.[1]) extension = match[1].toLowerCase().replace('jpeg', 'jpg');
+  } catch {
+    // The safe JPEG fallback is only a download name; it does not transform
+    // or reinterpret the stored attachment.
+  }
+  return `imagen-${messageId.slice(0, 8)}.${extension}`;
 }
 
 async function downloadMedia(url: string, fileName: string) {
@@ -145,17 +162,29 @@ function MediaImage({
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let objectUrl: string | null = null;
+    setError(false);
+    setLoading(true);
+    setSrc(null);
 
     const load = async () => {
       if (!url) return;
 
-      if (url.startsWith('/api/whatsapp/media/')) {
+      // Both inbound Meta media and outbound private chat-media use
+      // authenticated API routes. Loading them as blobs keeps cookies on the
+      // first request, survives signed-URL redirects, and prevents an expired
+      // storage URL from being left in the DOM.
+      if (url.startsWith('/api/')) {
         try {
           const response = await fetch(url);
           if (!response.ok) throw new Error('Failed to load media');
+          const contentType = response.headers.get('content-type') ?? '';
+          if (!contentType.toLowerCase().startsWith('image/')) {
+            throw new Error('The response is not an image');
+          }
           const blob = await response.blob();
           objectUrl = URL.createObjectURL(blob);
           setSrc(objectUrl);
@@ -174,13 +203,20 @@ function MediaImage({
     return () => {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [url]);
+  }, [reloadKey, url]);
 
   if (error) {
     return (
-      <div className="bg-muted flex h-40 w-60 items-center justify-center rounded-lg">
-        <ImageOff className="text-muted-foreground h-8 w-8" />
-      </div>
+      <button
+        type="button"
+        data-message-interactive="true"
+        onClick={() => setReloadKey((value) => value + 1)}
+        className="bg-muted text-muted-foreground hover:bg-muted/80 flex h-40 w-60 flex-col items-center justify-center gap-2 rounded-xl text-xs transition-colors"
+      >
+        <ImageOff className="h-8 w-8" />
+        <span>No se pudo cargar la imagen</span>
+        <span className="text-primary font-semibold">Reintentar</span>
+      </button>
     );
   }
 
@@ -199,7 +235,7 @@ function MediaImage({
         data-message-interactive="true"
         onClick={() => setPreviewOpen(true)}
         onDoubleClick={(event) => event.stopPropagation()}
-        className="group/media relative block overflow-hidden rounded-lg text-left focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:outline-none"
+        className="group/media relative block max-w-full overflow-hidden rounded-xl text-left focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:outline-none"
         aria-label="Ver imagen completa"
       >
         {/* Private/blob chat media cannot use the public image optimizer. */}
@@ -207,7 +243,7 @@ function MediaImage({
         <img
           src={src ?? ''}
           alt={alt}
-          className="max-h-80 max-w-72 object-cover transition-transform duration-200 group-hover/media:scale-[1.02]"
+          className="h-auto max-h-96 max-w-full object-contain transition-transform duration-200 group-hover/media:scale-[1.02] sm:max-w-80"
           onError={() => setError(true)}
         />
         <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover/media:bg-black/20">
@@ -218,12 +254,12 @@ function MediaImage({
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent
           data-message-interactive="true"
-          className="max-h-[94vh] max-w-[94vw] gap-3 bg-black/95 p-3 text-white sm:max-w-[94vw]"
+          className="grid h-[94vh] w-[94vw] max-w-[94vw] grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden bg-black/95 p-3 text-white sm:max-w-[94vw]"
           onDoubleClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center justify-between gap-3 pr-10">
-            <DialogTitle className="truncate text-sm text-white">
-              {fileName}
+          <div className="flex min-w-0 items-center justify-between gap-3 pr-10">
+            <DialogTitle className="min-w-0 flex-1 truncate text-sm text-white">
+              Imagen compartida
             </DialogTitle>
             <button
               type="button"
@@ -234,12 +270,16 @@ function MediaImage({
               Descargar
             </button>
           </div>
-          <div className="flex min-h-0 items-center justify-center overflow-auto">
+          <div className="flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-2xl bg-black">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={src ?? ''}
               alt={alt}
-              className="max-h-[82vh] max-w-full object-contain"
+              className="block h-full w-full object-contain"
+              onError={() => {
+                setPreviewOpen(false);
+                setError(true);
+              }}
             />
           </div>
         </DialogContent>
@@ -252,12 +292,16 @@ function MessageContent({ message }: { message: Message }) {
   const mediaUrl = message.media_url
     ? privateMediaViewUrl(message.media_url)
     : null;
+  const mediaText = visibleMediaText(
+    message.content_text,
+    message.content_type
+  );
 
   switch (message.content_type) {
     case 'text':
       return (
         <p className="text-base leading-7 break-words whitespace-pre-wrap">
-          {message.content_text}
+          {message.content_text || 'Mensaje sin contenido disponible'}
         </p>
       );
 
@@ -269,17 +313,14 @@ function MessageContent({ message }: { message: Message }) {
             <MediaImage
               url={mediaUrl}
               alt="Imagen compartida"
-              fileName={safeFileName(
-                message.content_text || `imagen-${message.id}.jpg`,
-                `imagen-${message.id}.jpg`
-              )}
+              fileName={imageFileName(message.id, mediaUrl)}
             />
           ) : (
             <MediaUnavailable label="Image" />
           )}
-          {message.content_text && (
+          {mediaText && (
             <p className="mt-1 text-base leading-7 break-words whitespace-pre-wrap">
-              {message.content_text}
+              {mediaText}
             </p>
           )}
         </div>
@@ -297,9 +338,9 @@ function MessageContent({ message }: { message: Message }) {
           ) : (
             <MediaUnavailable label="Video" />
           )}
-          {message.content_text && (
+          {mediaText && (
             <p className="mt-1 text-[15px] leading-6 break-words whitespace-pre-wrap">
-              {message.content_text}
+              {mediaText}
             </p>
           )}
         </div>
@@ -313,12 +354,12 @@ function MessageContent({ message }: { message: Message }) {
           ) : (
             <MediaUnavailable label="Audio" />
           )}
-          {message.content_text && (
+          {mediaText && (
             <p className="text-muted-foreground mt-2 max-w-72 text-xs leading-5 break-words whitespace-pre-wrap">
               {message.sender_type === 'customer'
                 ? 'Transcripción: '
                 : 'Contenido: '}
-              {message.content_text}
+              {mediaText}
             </p>
           )}
         </div>
@@ -326,11 +367,11 @@ function MessageContent({ message }: { message: Message }) {
 
     case 'document':
       if (!mediaUrl) {
-        return <MediaUnavailable label={message.content_text || 'Document'} />;
+        return <MediaUnavailable label={mediaText || 'Document'} />;
       }
       {
         const documentName = safeFileName(
-          message.content_text || `documento-${message.id}`,
+          mediaText || `documento-${message.id}`,
           `documento-${message.id}`
         );
         return (
@@ -422,6 +463,7 @@ function MessageContent({ message }: { message: Message }) {
 
 export function MessageBubble({
   message,
+  senderLabel,
   reply,
   reactions,
   currentUserId,
@@ -430,6 +472,13 @@ export function MessageBubble({
   const isAgent =
     message.sender_type === 'agent' || message.sender_type === 'bot';
   const time = format(new Date(message.created_at), 'HH:mm');
+  const visibleSenderLabel =
+    senderLabel?.trim() ||
+    (message.sender_type === 'bot'
+      ? 'Agente IA'
+      : message.sender_type === 'customer'
+        ? 'Cliente'
+        : 'Ejecutivo');
 
   // Row alignment + width cap are owned by <MessageActions> so its hover
   // group matches the bubble's content area, not the full row.
@@ -443,6 +492,14 @@ export function MessageBubble({
             : 'bg-muted text-foreground rounded-bl-md'
         )}
       >
+        <p
+          className={cn(
+            'mb-1 text-xs leading-4 font-semibold',
+            isAgent ? 'text-primary-foreground/85' : 'text-primary'
+          )}
+        >
+          {visibleSenderLabel}
+        </p>
         {reply && (
           <ReplyQuote
             authorLabel={reply.authorLabel}

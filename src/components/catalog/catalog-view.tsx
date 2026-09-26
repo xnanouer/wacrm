@@ -528,7 +528,7 @@ export function CatalogView({
                   Limpiar
                 </Button>
               )}
-              <div className="border-border bg-muted/40 flex rounded-xl border p-1">
+              <div className="border-border bg-muted/40 hidden rounded-xl border p-1 md:flex">
                 <ViewButton
                   active={view === 'grid'}
                   label="Tarjetas"
@@ -619,12 +619,29 @@ export function CatalogView({
               ))}
             </div>
           ) : (
-            <VehicleTable
-              vehicles={filteredVehicles}
-              canAdminister={canAdminister}
-              onOpen={setSelectedVehicle}
-              onReview={openReview}
-            />
+            <>
+              <div className="grid gap-4 md:hidden">
+                {filteredVehicles.map((vehicle) => (
+                  <VehicleCard
+                    key={vehicle.id}
+                    vehicle={vehicle}
+                    canAdminister={canAdminister}
+                    onOpen={() => setSelectedVehicle(vehicle)}
+                    onDuplicate={() => handleDuplicate(vehicle)}
+                    onArchive={() => handleArchive(vehicle)}
+                    onReview={(decision) => openReview(vehicle, decision)}
+                  />
+                ))}
+              </div>
+              <div className="hidden md:block">
+                <VehicleTable
+                  vehicles={filteredVehicles}
+                  canAdminister={canAdminister}
+                  onOpen={setSelectedVehicle}
+                  onReview={openReview}
+                />
+              </div>
+            </>
           )}
         </div>
       </section>

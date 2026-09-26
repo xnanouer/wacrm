@@ -556,14 +556,23 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
 });
 
 describe('dispatchInboundToAiReply — handoff', () => {
-  it('disables auto-reply and does not send on handoff', async () => {
+  it('notifies the customer before disabling auto-reply on handoff', async () => {
     h.generateReply.mockResolvedValue({
       text: '',
       handoff: true,
       replyMode: 'text',
     });
     await dispatchInboundToAiReply(ARGS);
-    expect(h.sendMessageToConversation).not.toHaveBeenCalled();
+    expect(h.sendMessageToConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        messageType: 'text',
+        senderType: 'bot',
+        contentText: expect.stringContaining('ejecutivo'),
+      })
+    );
     expect(h.state.updatePayload).toEqual(
       expect.objectContaining({
         ai_autoreply_disabled: true,
@@ -573,5 +582,23 @@ describe('dispatchInboundToAiReply — handoff', () => {
     );
     expect(h.state.rpcCalls).toHaveLength(1);
     expect(h.finalizeAiPoints).toHaveBeenCalled();
+  });
+
+  it('sends the model transition sentence before handoff', async () => {
+    h.generateReply.mockResolvedValue({
+      text: 'Te comunicaré con un ejecutivo para continuar.',
+      handoff: true,
+      replyMode: 'text',
+    });
+
+    await dispatchInboundToAiReply(ARGS);
+
+    expect(h.sendMessageToConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      expect.objectContaining({
+        contentText: 'Te comunicaré con un ejecutivo para continuar.',
+      })
+    );
   });
 });

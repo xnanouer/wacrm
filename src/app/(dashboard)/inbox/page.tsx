@@ -18,10 +18,8 @@ import { useRealtime } from '@/hooks/use-realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { MessageThread } from '@/components/inbox/message-thread';
 import { ContactSidebar } from '@/components/inbox/contact-sidebar';
-import { InboxBriefing } from '@/components/inbox/inbox-briefing';
 import { WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { isConversationAwaitingReply } from '@/lib/inbox/response-waiting';
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -53,16 +51,6 @@ export default function InboxPage() {
    * once on conversationId-change as usual.
    */
   const [resyncToken, setResyncToken] = useState(0);
-  const [currentTime, setCurrentTime] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const priorityWaitingCount = conversations.filter((conversation) =>
-    isConversationAwaitingReply(conversation, currentTime)
-  ).length;
 
   const handleContactTagsChanged = useCallback(
     (nextTags: Tag[]) => {
@@ -97,6 +85,7 @@ export default function InboxPage() {
    * below reconciles to the stored value right after mount instead.
    */
   const [contactPanelOpen, setContactPanelOpen] = useState(true);
+  const [mobileContactOpen, setMobileContactOpen] = useState(false);
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CONTACT_PANEL_STORAGE_KEY);
@@ -587,6 +576,7 @@ export default function InboxPage() {
       setActiveConversation(conv);
       setActiveContact(conv.contact ?? null);
       setMessages([]);
+      setMobileContactOpen(false);
       // Optimistically clear the unread badge for this conv. The
       // server-side reset is fired by the unread-reset effect inside
       // MessageThread (which reads activeConversation.unread_count, not
@@ -621,6 +611,7 @@ export default function InboxPage() {
   // back. Also clears the ?c= param so a refresh lands on the list
   // instead of re-opening the thread the user just backed out of.
   const handleCloseConversation = useCallback(() => {
+    setMobileContactOpen(false);
     setActiveConversation(null);
     setActiveContact(null);
     setMessages([]);
@@ -682,6 +673,33 @@ export default function InboxPage() {
     [activeConversation]
   );
 
+  const handleAcceptConversation = useCallback(
+    async (conversation: Conversation): Promise<Conversation> => {
+      const response = await fetch(`/api/tickets/${conversation.id}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'accept' }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'No se pudo aceptar el lead');
+      }
+
+      const ticket = payload.ticket as Conversation;
+      const accepted = { ...conversation, ...ticket };
+      setConversations((current) =>
+        current.map((item) => (item.id === accepted.id ? accepted : item))
+      );
+      if (activeConversation?.id === accepted.id) {
+        setActiveConversation((current) =>
+          current ? { ...current, ...ticket } : current
+        );
+      }
+      return accepted;
+    },
+    [activeConversation?.id]
+  );
+
   // On mobile (<lg) we show a SINGLE pane — either the list or the
   // thread — rather than cramming both side-by-side. Selecting a
   // conversation slides the thread in; the thread's back button pops
@@ -702,9 +720,7 @@ export default function InboxPage() {
         </div>
       )}
 
-      <InboxBriefing priorityCount={priorityWaitingCount} />
-
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
             thread can occupy the full width. Always visible on lg+. */}
@@ -717,6 +733,7 @@ export default function InboxPage() {
           <ConversationList
             activeConversationId={activeConversation?.id ?? null}
             onSelect={handleSelectConversation}
+            onAccept={handleAcceptConversation}
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
@@ -753,6 +770,7 @@ export default function InboxPage() {
             onRefresh={handleManualRefresh}
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}
+            onOpenContactPanel={() => setMobileContactOpen(true)}
           />
         </div>
 
@@ -769,6 +787,17 @@ export default function InboxPage() {
             />
           </div>
         )}
+
+        {mobileContactOpen && activeContact ? (
+          <div className="bg-background absolute inset-0 z-30 flex lg:hidden">
+            <ContactSidebar
+              contact={activeContact}
+              conversation={activeConversation}
+              onTagsChanged={handleContactTagsChanged}
+              onClose={() => setMobileContactOpen(false)}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -1,0 +1,121 @@
+name: nexora
+
+x-app: &app
+  image: nexora-app:${NEXT_PUBLIC_APP_VERSION:-latest}
+  env_file:
+    - .env.production
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '5'
+
+services:
+  web:
+    <<: *app
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?required}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?required}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?required}
+    environment:
+      # Never publish port 3001. The web app reaches the bridge only through
+      # Docker's private network and authenticates with the bridge secret.
+      WHATSAPP_WEB_SERVICE_URL: http://whatsapp-worker:3001
+    expose:
+      - '3000'
+    mem_limit: 1700m
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    stop_grace_period: 30s
+
+  whatsapp-worker:
+    <<: *app
+    command: ['npm', 'run', 'start:web']
+    environment:
+      WHATSAPP_WEB_NEXORA_URL: http://web:3000
+      WHATSAPP_WEB_SERVICE_HOST: 0.0.0.0
+      WHATSAPP_WEB_SERVICE_PORT: '3001'
+      WHATSAPP_WEB_SESSION_PATH: /app/.wwebjs_auth
+    expose:
+      - '3001'
+    volumes:
+      - whatsapp_sessions:/app/.wwebjs_auth
+      - whatsapp_cache:/app/.wwebjs_cache
+    # Chromium is the heaviest process on KVM1. The cap leaves room for the
+    # web app, Caddy, the scheduler and the operating system; swap absorbs
+    # brief peaks without allowing the worker to exhaust the server.
+    mem_limit: 1300m
+    shm_size: 256mb
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/health',{headers:{'x-nexora-bridge-secret':process.env.WHATSAPP_WEB_BRIDGE_SECRET}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    stop_grace_period: 45s
+
+  scheduler:
+    <<: *app
+    command: ['node', 'scripts/production-cron.mjs']
+    volumes:
+      - ./scripts/production-cron.mjs:/app/scripts/production-cron.mjs:ro
+    environment:
+      SCHEDULER_BASE_URL: http://web:3000
+    depends_on:
+      web:
+        condition: service_healthy
+    mem_limit: 192m
+    stop_grace_period: 10s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?required}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 192m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+
+volumes:
+  whatsapp_sessions:
+  whatsapp_cache:
+  caddy_data:
+  caddy_config:

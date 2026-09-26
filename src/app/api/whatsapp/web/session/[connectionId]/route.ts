@@ -40,7 +40,7 @@ function serviceError(error: unknown) {
   return NextResponse.json(
     {
       error: isWhatsAppWebServiceOffline(error)
-        ? 'El servicio QR no está ejecutándose.'
+        ? 'El servicio QR no está disponible.'
         : error instanceof Error
           ? error.message
           : 'No se pudo contactar el servicio QR.',

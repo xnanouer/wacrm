@@ -27,6 +27,7 @@ export function NexoraBenefitNotifications() {
       toast(notification.title, {
         description: notification.body,
         duration: 12_000,
+        closeButton: notification.type === 'ai_coaching_ready',
         icon:
           notification.type === 'ai_coaching_ready' ? (
             <BrainCircuit className="text-primary size-5" />

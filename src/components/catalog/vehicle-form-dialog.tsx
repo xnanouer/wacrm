@@ -1,7 +1,33 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
-import { CarFront, Eye, EyeOff, ImagePlus, Save } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  type DragEndEvent,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
+  CarFront,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  GripVertical,
+  ImageIcon,
+  ImagePlus,
+  Save,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -16,8 +42,13 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { uploadCatalogImage } from '@/lib/catalog/images';
+import {
+  CATALOG_IMAGE_MAX_BYTES,
+  reorderCatalogImages,
+  uploadCatalogImage,
+} from '@/lib/catalog/images';
 import type { CatalogVehicle, CatalogVehicleInput } from '@/lib/catalog/types';
+import { cn } from '@/lib/utils';
 
 interface VehicleFormDialogProps {
   open: boolean;
@@ -27,6 +58,65 @@ interface VehicleFormDialogProps {
 }
 
 const fieldClassName = 'h-10 rounded-xl';
+const MAX_GALLERY_IMAGES = 50;
+
+interface ExistingGalleryImage {
+  key: string;
+  kind: 'existing';
+  id: string;
+  url: string | null;
+  altText: string;
+  byteSize: number;
+}
+
+interface NewGalleryImage {
+  key: string;
+  kind: 'new';
+  file: File;
+  url: string;
+}
+
+type GalleryImage = ExistingGalleryImage | NewGalleryImage;
+
+function galleryFromVehicle(vehicle?: CatalogVehicle | null): GalleryImage[] {
+  return (vehicle?.images ?? [])
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((image) => ({
+      key: `existing:${image.id}`,
+      kind: 'existing' as const,
+      id: image.id,
+      url: image.url,
+      altText: image.altText,
+      byteSize: image.byteSize,
+    }));
+}
+
+function imageBaseName(name: string): string {
+  return name
+    .replace(/\.[^.]+$/, '')
+    .trim()
+    .toLocaleLowerCase('es');
+}
+
+function isRepeatedImage(gallery: GalleryImage[], file: File): boolean {
+  const fileName = imageBaseName(file.name);
+  return gallery.some((image) => {
+    if (image.kind === 'new') {
+      return (
+        image.file.name.toLocaleLowerCase('es') ===
+          file.name.toLocaleLowerCase('es') &&
+        image.file.size === file.size &&
+        image.file.lastModified === file.lastModified
+      );
+    }
+    return (
+      Boolean(image.altText) &&
+      imageBaseName(image.altText) === fileName &&
+      image.byteSize === file.size
+    );
+  });
+}
 
 export function VehicleFormDialog({
   open,
@@ -37,8 +127,123 @@ export function VehicleFormDialog({
   const [licensePlateVisible, setLicensePlateVisible] = useState(
     vehicle?.licensePlateVisible ?? false
   );
-  const [images, setImages] = useState<File[]>([]);
+  const [gallery, setGallery] = useState<GalleryImage[]>(() =>
+    galleryFromVehicle(vehicle)
+  );
   const [saving, setSaving] = useState(false);
+  const objectUrls = useRef(new Set<string>());
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    for (const url of objectUrls.current) URL.revokeObjectURL(url);
+    objectUrls.current.clear();
+    setGallery(galleryFromVehicle(vehicle));
+    setLicensePlateVisible(vehicle?.licensePlateVisible ?? false);
+  }, [open, vehicle]);
+
+  useEffect(
+    () => () => {
+      for (const url of objectUrls.current) URL.revokeObjectURL(url);
+      objectUrls.current.clear();
+    },
+    []
+  );
+
+  function clearNewImagePreviews() {
+    for (const url of objectUrls.current) URL.revokeObjectURL(url);
+    objectUrls.current.clear();
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen) clearNewImagePreviews();
+    onOpenChange(nextOpen);
+  }
+
+  function handleImageSelection(files: FileList | null) {
+    const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length === 0) return;
+
+    const nextGallery = [...gallery];
+    let duplicateCount = 0;
+    let invalidCount = 0;
+    let limitCount = 0;
+
+    for (const file of selectedFiles) {
+      if (
+        !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+        file.size < 1 ||
+        file.size > CATALOG_IMAGE_MAX_BYTES
+      ) {
+        invalidCount += 1;
+        continue;
+      }
+      if (isRepeatedImage(nextGallery, file)) {
+        duplicateCount += 1;
+        continue;
+      }
+      if (nextGallery.length >= MAX_GALLERY_IMAGES) {
+        limitCount += 1;
+        continue;
+      }
+
+      const url = URL.createObjectURL(file);
+      objectUrls.current.add(url);
+      nextGallery.push({
+        key: `new:${crypto.randomUUID()}`,
+        kind: 'new',
+        file,
+        url,
+      });
+    }
+
+    setGallery(nextGallery);
+    if (duplicateCount > 0) {
+      toast.info(
+        duplicateCount === 1
+          ? 'Esa fotografía ya estaba en la galería.'
+          : `${duplicateCount} fotografías repetidas no se agregaron.`
+      );
+    }
+    if (invalidCount > 0) {
+      toast.warning(
+        invalidCount === 1
+          ? 'Una fotografía no cumple el formato o el límite de 5 MB.'
+          : `${invalidCount} fotografías no cumplen el formato o el límite de 5 MB.`
+      );
+    }
+    if (limitCount > 0) {
+      toast.warning(`La galería admite hasta ${MAX_GALLERY_IMAGES} fotos.`);
+    }
+  }
+
+  function handleReorder(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = gallery.findIndex((image) => image.key === active.id);
+    const newIndex = gallery.findIndex((image) => image.key === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    setGallery(arrayMove(gallery, oldIndex, newIndex));
+  }
+
+  function moveImage(index: number, direction: -1 | 1) {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= gallery.length) return;
+    setGallery(arrayMove(gallery, index, nextIndex));
+  }
+
+  function removeNewImage(key: string) {
+    setGallery((current) => {
+      const image = current.find((candidate) => candidate.key === key);
+      if (image?.kind === 'new') {
+        URL.revokeObjectURL(image.url);
+        objectUrls.current.delete(image.url);
+      }
+      return current.filter((candidate) => candidate.key !== key);
+    });
+  }
 
   async function saveVehicle(
     input: CatalogVehicleInput,
@@ -102,16 +307,31 @@ export function VehicleFormDialog({
     setSaving(true);
     try {
       const itemId = await saveVehicle(input);
-      let imageWarning: string | null = null;
-      try {
-        for (const [index, image] of images.entries()) {
-          await uploadCatalogImage(itemId, image, index);
+      const orderedImageIds: string[] = [];
+      const imageWarnings: string[] = [];
+      for (const [index, image] of gallery.entries()) {
+        if (image.kind === 'existing') {
+          orderedImageIds.push(image.id);
+          continue;
         }
-      } catch (error) {
-        imageWarning =
-          error instanceof Error
-            ? error.message
-            : 'Una fotografía no pudo guardarse.';
+
+        try {
+          const imageId = await uploadCatalogImage(
+            itemId,
+            image.file,
+            2_000_000_000 + index
+          );
+          orderedImageIds.push(imageId);
+        } catch (error) {
+          imageWarnings.push(
+            error instanceof Error
+              ? `${image.file.name}: ${error.message}`
+              : `${image.file.name}: no pudo guardarse.`
+          );
+        }
+      }
+      if (orderedImageIds.length > 0) {
+        await reorderCatalogImages(itemId, orderedImageIds);
       }
       await onSaved();
       toast.success(
@@ -119,13 +339,19 @@ export function VehicleFormDialog({
           ? 'Vehículo actualizado correctamente.'
           : 'Vehículo guardado como borrador.'
       );
-      if (imageWarning) {
-        toast.warning('La ficha se guardó, pero faltó una fotografía.', {
-          description: imageWarning,
-        });
+      if (imageWarnings.length > 0) {
+        toast.warning(
+          imageWarnings.length === 1
+            ? 'La ficha se guardó, pero faltó una fotografía.'
+            : `La ficha se guardó, pero faltaron ${imageWarnings.length} fotografías.`,
+          {
+            description: imageWarnings.join(' '),
+          }
+        );
       }
       event.currentTarget.reset();
-      setImages([]);
+      clearNewImagePreviews();
+      setGallery([]);
       setLicensePlateVisible(false);
       onOpenChange(false);
     } catch (error) {
@@ -140,7 +366,7 @@ export function VehicleFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[92vh] overflow-y-auto p-0 sm:max-w-4xl">
         <form onSubmit={handleSubmit}>
           <DialogHeader className="border-border/70 bg-popover/95 sticky top-0 z-10 border-b px-5 py-4 backdrop-blur-xl sm:px-7">
@@ -364,8 +590,9 @@ export function VehicleFormDialog({
                   <div>
                     <h3 className="text-sm font-semibold">Fotografías</h3>
                     <p className="text-muted-foreground mt-1 max-w-xl text-xs leading-5">
-                      Selecciona fotografías JPEG, PNG o WebP de hasta 5 MB. La
-                      primera quedará como imagen principal.
+                      Las fotos ya guardadas aparecen abajo: agrega solo las
+                      nuevas. Arrástralas para definir el orden de envío; la
+                      primera será la imagen principal.
                     </p>
                   </div>
                 </div>
@@ -376,19 +603,57 @@ export function VehicleFormDialog({
                     accept="image/jpeg,image/png,image/webp"
                     multiple
                     className="sr-only"
-                    onChange={(event) =>
-                      setImages(Array.from(event.target.files ?? []))
-                    }
+                    onChange={(event) => {
+                      handleImageSelection(event.target.files);
+                      event.target.value = '';
+                    }}
                   />
                 </label>
               </div>
-              {images.length > 0 && (
-                <p className="text-primary mt-3 text-xs font-semibold">
-                  {images.length}{' '}
-                  {images.length === 1
-                    ? 'fotografía seleccionada'
-                    : 'fotografías seleccionadas'}
-                </p>
+              {gallery.length > 0 ? (
+                <div className="mt-5">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-foreground text-xs font-semibold">
+                      {gallery.length}{' '}
+                      {gallery.length === 1
+                        ? 'fotografía en la galería'
+                        : 'fotografías en la galería'}
+                    </p>
+                    <p className="text-muted-foreground text-[11px]">
+                      JPEG, PNG o WebP · máximo 5 MB por foto
+                    </p>
+                  </div>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleReorder}
+                  >
+                    <SortableContext
+                      items={gallery.map((image) => image.key)}
+                      strategy={rectSortingStrategy}
+                    >
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                        {gallery.map((image, index) => (
+                          <SortableGalleryImage
+                            key={image.key}
+                            image={image}
+                            index={index}
+                            total={gallery.length}
+                            onMove={moveImage}
+                            onRemove={removeNewImage}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              ) : (
+                <div className="border-border/70 bg-background/60 text-muted-foreground mt-5 flex min-h-28 flex-col items-center justify-center rounded-xl border border-dashed px-4 text-center">
+                  <ImageIcon className="mb-2 size-5" />
+                  <p className="text-xs font-medium">
+                    Este vehículo aún no tiene fotografías.
+                  </p>
+                </div>
               )}
             </section>
           </div>
@@ -397,7 +662,7 @@ export function VehicleFormDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
               disabled={saving}
             >
               Cancelar
@@ -414,6 +679,129 @@ export function VehicleFormDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function SortableGalleryImage({
+  image,
+  index,
+  total,
+  onMove,
+  onRemove,
+}: {
+  image: GalleryImage;
+  index: number;
+  total: number;
+  onMove: (index: number, direction: -1 | 1) => void;
+  onRemove: (key: string) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: image.key });
+  const label =
+    image.kind === 'new'
+      ? image.file.name
+      : image.altText || `Fotografía ${index + 1}`;
+
+  return (
+    <article
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.55 : 1,
+        zIndex: isDragging ? 20 : undefined,
+      }}
+      className={cn(
+        'border-border bg-card group relative overflow-hidden rounded-xl border shadow-sm',
+        index === 0 && 'border-primary/55 ring-primary/10 ring-2'
+      )}
+    >
+      <div className="bg-muted relative aspect-[4/3] overflow-hidden">
+        {image.url ? (
+          // Signed and local blob URLs do not benefit from Next image optimization.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={image.url} alt={label} className="size-full object-cover" />
+        ) : (
+          <div className="text-muted-foreground flex size-full flex-col items-center justify-center gap-1 px-3 text-center">
+            <ImageIcon className="size-6" />
+            <span className="text-[10px]">Vista previa no disponible</span>
+          </div>
+        )}
+
+        <span className="bg-background/90 text-foreground absolute top-2 left-2 flex size-6 items-center justify-center rounded-full text-[10px] font-bold shadow-sm backdrop-blur">
+          {index + 1}
+        </span>
+        <span
+          className={cn(
+            'absolute right-2 bottom-2 rounded-full px-2 py-1 text-[9px] font-bold shadow-sm backdrop-blur',
+            image.kind === 'existing'
+              ? 'bg-background/90 text-foreground'
+              : 'bg-emerald-600/90 text-white'
+          )}
+        >
+          {image.kind === 'existing' ? 'Guardada' : 'Nueva'}
+        </span>
+        {index === 0 && (
+          <span className="bg-primary text-primary-foreground absolute top-2 left-10 rounded-full px-2 py-1 text-[9px] font-bold shadow-sm">
+            Principal
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5 p-2">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground flex size-8 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg border active:cursor-grabbing"
+          aria-label={`Mover ${label}`}
+          title="Arrastrar para ordenar"
+        >
+          <GripVertical className="size-4" />
+        </button>
+        <p
+          className="min-w-0 flex-1 truncate text-[11px] font-medium"
+          title={label}
+        >
+          {label}
+        </p>
+        <button
+          type="button"
+          onClick={() => onMove(index, -1)}
+          disabled={index === 0}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex size-7 items-center justify-center rounded-md disabled:opacity-25"
+          aria-label={`Mover ${label} a la izquierda`}
+        >
+          <ChevronLeft className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onMove(index, 1)}
+          disabled={index === total - 1}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex size-7 items-center justify-center rounded-md disabled:opacity-25"
+          aria-label={`Mover ${label} a la derecha`}
+        >
+          <ChevronRight className="size-3.5" />
+        </button>
+        {image.kind === 'new' && (
+          <button
+            type="button"
+            onClick={() => onRemove(image.key)}
+            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex size-7 items-center justify-center rounded-md"
+            aria-label={`Quitar ${label}`}
+            title="Quitar fotografía nueva"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        )}
+      </div>
+    </article>
   );
 }
 

@@ -10,7 +10,7 @@ export async function uploadCatalogImage(
   catalogItemId: string,
   file: File,
   sortOrder: number
-): Promise<void> {
+): Promise<string> {
   const extension = IMAGE_EXTENSIONS[file.type];
   if (!extension) {
     throw new Error('Solo se permiten imágenes JPEG, PNG o WebP.');
@@ -30,12 +30,41 @@ export async function uploadCatalogImage(
     body: form,
   });
 
+  const payload = (await response.json().catch(() => null)) as {
+    image?: { id?: string } | Array<{ id?: string }>;
+    error?: string;
+  } | null;
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.error ?? 'No fue posible registrar una fotografía.'
+    );
+  }
+
+  const image = Array.isArray(payload?.image)
+    ? payload.image[0]
+    : payload?.image;
+  if (!image?.id) {
+    throw new Error('La fotografía se guardó sin un identificador válido.');
+  }
+  return image.id;
+}
+
+export async function reorderCatalogImages(
+  catalogItemId: string,
+  orderedImageIds: string[]
+): Promise<void> {
+  const response = await fetch(`/api/catalog/${catalogItemId}/images`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderedImageIds }),
+  });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
       error?: string;
     } | null;
     throw new Error(
-      payload?.error ?? 'No fue posible registrar una fotografía.'
+      payload?.error ?? 'No fue posible guardar el orden de las fotografías.'
     );
   }
 }

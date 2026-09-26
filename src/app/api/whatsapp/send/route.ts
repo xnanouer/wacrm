@@ -185,6 +185,7 @@ export async function POST(request: Request) {
             messageType: message_type,
             contentText: content_text,
             replyToMessageId: reply_to_message_id,
+            senderId: user.id,
           }
         );
         return NextResponse.json({
@@ -219,6 +220,7 @@ export async function POST(request: Request) {
         templateParams: template_params,
         templateMessageParams: template_message_params,
         replyToMessageId: reply_to_message_id,
+        senderId: user.id,
       });
 
       return NextResponse.json({

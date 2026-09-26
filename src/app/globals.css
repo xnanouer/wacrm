@@ -250,9 +250,14 @@ html[data-theme='rose'] {
         var(--background)
       );
     background-attachment: fixed;
+    max-width: 100%;
+    min-height: 100dvh;
+    overflow-x: clip;
   }
   html {
     @apply font-sans;
+    max-width: 100%;
+    overflow-x: clip;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
   }
@@ -262,6 +267,13 @@ html[data-theme='rose'] {
   select,
   textarea {
     font: inherit;
+  }
+
+  img,
+  video,
+  canvas,
+  svg {
+    max-width: 100%;
   }
 
   :focus-visible {
@@ -447,6 +459,63 @@ html[data-theme='rose'] {
   .nexora-workspace [data-slot='textarea'],
   .nexora-workspace [data-slot='select-trigger'] {
     min-height: 3rem;
+  }
+
+  @media (max-width: 767px) {
+    /* The desktop workspace intentionally increases compact utility text.
+       On a phone that scale makes tabs and status chips wider than their
+       cards, so restore the mobile-sized typography for supporting copy.
+       Inputs remain 16px below to prevent Safari's focus zoom. */
+    .nexora-workspace .text-sm {
+      font-size: 0.875rem !important;
+      line-height: 1.25rem !important;
+    }
+
+    .nexora-workspace .text-xs {
+      font-size: 0.75rem !important;
+      line-height: 1rem !important;
+    }
+
+    .nexora-workspace [class~='text-[9px]'],
+    .nexora-workspace [class~='text-[10px]'] {
+      font-size: 0.6875rem !important;
+      line-height: 0.95rem !important;
+    }
+
+    .nexora-workspace [class~='text-[11px]'],
+    .nexora-workspace [class~='text-[12px]'] {
+      font-size: 0.75rem !important;
+      line-height: 1rem !important;
+    }
+
+    .nexora-workspace [class~='text-[13px]'] {
+      font-size: 0.8125rem !important;
+      line-height: 1.125rem !important;
+    }
+
+    .nexora-workspace [data-slot='input'],
+    .nexora-workspace [data-slot='textarea'],
+    .nexora-workspace [data-slot='select-trigger'],
+    .nexora-workspace input,
+    .nexora-workspace select,
+    .nexora-workspace textarea {
+      font-size: 16px !important;
+    }
+
+    .nexora-workspace [class~='sm:grid-cols-2'],
+    .nexora-workspace [class~='sm:grid-cols-3'],
+    .nexora-workspace [class~='sm:grid-cols-4'] {
+      grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .nexora-workspace [data-slot='dialog-content'] {
+      max-height: calc(
+        100dvh - max(1rem, env(safe-area-inset-top)) -
+          max(1rem, env(safe-area-inset-bottom))
+      );
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
   }
 
   .nexora-workspace [data-slot='card'] {

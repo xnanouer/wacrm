@@ -6,11 +6,13 @@ import {
   hasCatalogCardsInConversation,
 } from './catalog';
 import { buildSystemPrompt } from './defaults';
-import { generateReply } from './generate';
+import { generateLeadProfilePatch, generateReply } from './generate';
 import { retrieveKnowledge } from './knowledge';
 import {
+  buildLeadProfileExtractionPrompt,
   buildLeadQualificationContext,
   loadConversationLeadProfile,
+  shouldExtractLeadProfile,
 } from './lead-profile';
 import { latestUserMessage } from './query';
 import type { AiConfig, ChatMessage, LeadProfilePatch } from './types';
@@ -203,6 +205,27 @@ export async function generateAgentReply(args: {
       config.permissions.generate_audio,
   });
   const generated = await generateReply({ config, systemPrompt, messages });
+  let leadProfilePatch = generated.leadProfilePatch;
+
+  if (
+    leadProfile &&
+    Object.keys(leadProfilePatch).length === 0 &&
+    shouldExtractLeadProfile(messages)
+  ) {
+    try {
+      leadProfilePatch = await generateLeadProfilePatch({
+        config,
+        systemPrompt: buildLeadProfileExtractionPrompt(
+          leadProfile,
+          config.leadFields
+        ),
+        messages,
+      });
+    } catch (error) {
+      // A failed extraction must never suppress the valid customer reply.
+      console.error('[ai] lead profile extraction failed:', error);
+    }
+  }
 
   const informationUsed = ['configuración del agente', 'conversación reciente'];
   if (knowledge.length) informationUsed.push('conocimiento y FAQs activas');
@@ -212,6 +235,7 @@ export async function generateAgentReply(args: {
 
   return {
     ...generated,
+    leadProfilePatch,
     tone:
       config.tone === 'custom'
         ? config.customTone || 'personalizado'

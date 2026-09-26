@@ -113,7 +113,7 @@ function sourceClass(source: CustomerBaseSource | null): string {
 }
 
 function selectClassName(): string {
-  return 'border-input bg-background text-foreground h-9 min-w-0 rounded-lg border px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30';
+  return 'border-input bg-background text-foreground h-11 min-w-40 shrink-0 rounded-xl border px-3 text-base outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 md:h-9 md:min-w-0 md:rounded-lg md:text-sm';
 }
 
 function completionClass(completion: number): string {
@@ -376,105 +376,107 @@ export function CustomerBase() {
             />
           </div>
 
-          <Popover>
-            <PopoverTrigger
-              render={
-                <Button variant="outline" className="shrink-0 xl:w-auto" />
-              }
-            >
-              <Filter className="size-4" />
-              Etiquetas
-              {filters.tagIds.length > 0 ? (
-                <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[10px]">
-                  {filters.tagIds.length}
-                </span>
-              ) : null}
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-72 p-0">
-              <div className="border-border flex items-center justify-between border-b px-3 py-2">
-                <span className="text-sm font-semibold">
-                  Mostrar si tiene alguna etiqueta
-                </span>
-                {filters.tagIds.length ? (
-                  <button
-                    type="button"
-                    onClick={() => updateFilter('tagIds', [])}
-                    className="text-muted-foreground hover:text-foreground text-xs"
-                  >
-                    Limpiar
-                  </button>
+          <div className="nexora-scrollbar flex max-w-full items-center gap-2 overflow-x-auto pb-1 xl:overflow-visible xl:pb-0">
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <Button variant="outline" className="shrink-0 xl:w-auto" />
+                }
+              >
+                <Filter className="size-4" />
+                Etiquetas
+                {filters.tagIds.length > 0 ? (
+                  <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[10px]">
+                    {filters.tagIds.length}
+                  </span>
                 ) : null}
-              </div>
-              <div className="max-h-72 overflow-y-auto p-1">
-                {tags.length ? (
-                  tags.map((tag) => (
-                    <label
-                      key={tag.id}
-                      className="hover:bg-muted flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2"
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 p-0">
+                <div className="border-border flex items-center justify-between border-b px-3 py-2">
+                  <span className="text-sm font-semibold">
+                    Mostrar si tiene alguna etiqueta
+                  </span>
+                  {filters.tagIds.length ? (
+                    <button
+                      type="button"
+                      onClick={() => updateFilter('tagIds', [])}
+                      className="text-muted-foreground hover:text-foreground text-xs"
                     >
-                      <Checkbox
-                        checked={filters.tagIds.includes(tag.id)}
-                        onCheckedChange={() => toggleTag(tag.id)}
-                      />
-                      <span
-                        className="size-2.5 rounded-full"
-                        style={{ backgroundColor: tag.color }}
-                      />
-                      <span className="truncate text-sm">{tag.name}</span>
-                    </label>
-                  ))
-                ) : (
-                  <p className="text-muted-foreground p-4 text-center text-sm">
-                    Todavía no existen etiquetas.
-                  </p>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
+                      Limpiar
+                    </button>
+                  ) : null}
+                </div>
+                <div className="max-h-72 overflow-y-auto p-1">
+                  {tags.length ? (
+                    tags.map((tag) => (
+                      <label
+                        key={tag.id}
+                        className="hover:bg-muted flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2"
+                      >
+                        <Checkbox
+                          checked={filters.tagIds.includes(tag.id)}
+                          onCheckedChange={() => toggleTag(tag.id)}
+                        />
+                        <span
+                          className="size-2.5 rounded-full"
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        <span className="truncate text-sm">{tag.name}</span>
+                      </label>
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground p-4 text-center text-sm">
+                      Todavía no existen etiquetas.
+                    </p>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
 
-          <select
-            aria-label="Filtrar por canal"
-            value={filters.source}
-            onChange={(event) =>
-              updateFilter(
-                'source',
-                event.target.value as CustomerBaseSource | ''
-              )
-            }
-            className={selectClassName()}
-          >
-            <option value="">Todos los canales</option>
-            <option value="whatsapp">WhatsApp</option>
-            <option value="facebook">Facebook</option>
-            <option value="instagram">Instagram</option>
-          </select>
+            <select
+              aria-label="Filtrar por canal"
+              value={filters.source}
+              onChange={(event) =>
+                updateFilter(
+                  'source',
+                  event.target.value as CustomerBaseSource | ''
+                )
+              }
+              className={selectClassName()}
+            >
+              <option value="">Todos los canales</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="facebook">Facebook</option>
+              <option value="instagram">Instagram</option>
+            </select>
 
-          <select
-            aria-label="Filtrar por avance de ficha"
-            value={filters.profile}
-            onChange={(event) =>
-              updateFilter(
-                'profile',
-                event.target.value as CustomerBaseProfileFilter
-              )
-            }
-            className={selectClassName()}
-          >
-            <option value="all">Todas las fichas</option>
-            <option value="complete">Ficha completa</option>
-            <option value="incomplete">Ficha incompleta</option>
-            <option value="with_data">Con información</option>
-            <option value="without_data">Sin información</option>
-          </select>
+            <select
+              aria-label="Filtrar por avance de ficha"
+              value={filters.profile}
+              onChange={(event) =>
+                updateFilter(
+                  'profile',
+                  event.target.value as CustomerBaseProfileFilter
+                )
+              }
+              className={selectClassName()}
+            >
+              <option value="all">Todas las fichas</option>
+              <option value="complete">Ficha completa</option>
+              <option value="incomplete">Ficha incompleta</option>
+              <option value="with_data">Con información</option>
+              <option value="without_data">Sin información</option>
+            </select>
 
-          <Button
-            type="button"
-            variant={advancedOpen ? 'secondary' : 'outline'}
-            onClick={() => setAdvancedOpen((value) => !value)}
-          >
-            <SlidersHorizontal className="size-4" />
-            Más filtros
-          </Button>
+            <Button
+              type="button"
+              variant={advancedOpen ? 'secondary' : 'outline'}
+              onClick={() => setAdvancedOpen((value) => !value)}
+            >
+              <SlidersHorizontal className="size-4" />
+              Más filtros
+            </Button>
+          </div>
         </div>
 
         {advancedOpen ? (
@@ -601,7 +603,7 @@ export function CustomerBase() {
           ) : null}
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <Table className="min-w-[1120px]">
             <TableHeader>
               <TableRow>
@@ -745,6 +747,123 @@ export function CustomerBase() {
               )}
             </TableBody>
           </Table>
+        </div>
+
+        <div className="divide-border divide-y md:hidden">
+          {loading ? (
+            <div className="flex min-h-48 flex-col items-center justify-center gap-2 p-6">
+              <Loader2 className="text-primary size-6 animate-spin" />
+              <span className="text-muted-foreground text-sm">
+                Preparando la base de clientes...
+              </span>
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="flex min-h-48 flex-col items-center justify-center p-6 text-center">
+              <UserRoundSearch className="text-muted-foreground mb-3 size-9" />
+              <p className="text-foreground font-medium">
+                No encontramos clientes con estos filtros
+              </p>
+              <Button variant="link" className="mt-1" onClick={clearFilters}>
+                Mostrar toda la base
+              </Button>
+            </div>
+          ) : (
+            rows.map((row) => (
+              <button
+                key={row.contact_id}
+                type="button"
+                onClick={() => setSelectedRow(row)}
+                className="hover:bg-muted/35 block w-full min-w-0 p-4 text-left transition-colors"
+              >
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-foreground truncate font-semibold">
+                      {row.full_name}
+                    </p>
+                    <p className="text-muted-foreground mt-1 truncate text-sm">
+                      {row.phone}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className={sourceClass(row.source)}>
+                    {sourceLabel(row.source)}
+                  </Badge>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                  <div className="min-w-0">
+                    <span className="text-muted-foreground block">
+                      Vehículo
+                    </span>
+                    <span className="text-foreground mt-0.5 block truncate font-medium">
+                      {row.vehicle_interest || 'No informado'}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-muted-foreground block">
+                      Ejecutivo
+                    </span>
+                    <span className="text-foreground mt-0.5 block truncate font-medium">
+                      {row.assigned_agent_name || 'Sin asignar'}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-muted-foreground block">Pie</span>
+                    <span className="text-foreground mt-0.5 block truncate font-medium">
+                      {row.down_payment || 'No informado'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block">Ficha</span>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="bg-muted h-1.5 min-w-0 flex-1 overflow-hidden rounded-full">
+                        <div
+                          className={cn(
+                            'h-full rounded-full',
+                            completionClass(row.profile_completion)
+                          )}
+                          style={{ width: `${row.profile_completion}%` }}
+                        />
+                      </div>
+                      <span className="text-foreground font-medium">
+                        {row.profile_completion}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {row.tags.length ? (
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {row.tags.slice(0, 4).map((tag) => (
+                      <span
+                        key={tag.id}
+                        className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                        style={{
+                          backgroundColor: `${tag.color}18`,
+                          color: tag.color,
+                        }}
+                      >
+                        {tag.name}
+                      </span>
+                    ))}
+                    {row.tags.length > 4 ? (
+                      <span className="text-muted-foreground text-[10px]">
+                        +{row.tags.length - 4}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="text-muted-foreground mt-3 flex items-center justify-between gap-3 border-t pt-3 text-[11px]">
+                  <span className="truncate">
+                    {row.department_name || 'Sin departamento'}
+                  </span>
+                  <span className="shrink-0">
+                    {formatDate(row.last_contact_at)}
+                  </span>
+                </div>
+              </button>
+            ))
+          )}
         </div>
 
         {!loading && total > 0 ? (

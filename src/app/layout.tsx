@@ -28,11 +28,24 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Nexora CRM',
+  },
+  icons: {
+    icon: '/pwa-icon/512',
+    apple: '/pwa-icon/192',
+  },
 };
 
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
   themeColor: '#020617',
   colorScheme: 'dark light',
+  viewportFit: 'cover',
 };
 
 // Inline boot script — runs before React hydrates so the user's

@@ -159,6 +159,7 @@ export async function POST(request: Request) {
           messageType: 'text',
           contentText: introductionText,
           senderType: 'agent',
+          senderId: ctx.userId,
           pauseFlows: true,
         });
     const result = await sendCatalogCandidates({
