@@ -1259,7 +1259,7 @@ export function MessageThread({
           ) : null}
         </div>
 
-        <div className="border-border/50 -mx-2.5 flex min-w-0 [scrollbar-width:none] flex-nowrap items-center gap-1.5 overflow-x-auto overscroll-x-contain border-t px-2.5 pt-2 pb-0.5 sm:mx-0 sm:gap-2 sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden">
+        <div className="border-border/50 -mx-2.5 grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 border-t px-2.5 pt-2 pb-0.5 sm:mx-0 sm:flex sm:[scrollbar-width:none] sm:flex-nowrap sm:gap-2 sm:overflow-x-auto sm:overscroll-x-contain sm:px-0 sm:pb-0 sm:[&::-webkit-scrollbar]:hidden">
           {/* Contact-panel toggle — desktop only. The contact sidebar
               eats a chunk of horizontal width that crowds the thread on
               smaller laptops; this lets agents reclaim it when they just
@@ -1300,7 +1300,7 @@ export function MessageThread({
               aria-label="Refresh conversation"
               title="Refresh"
               className={cn(
-                'text-muted-foreground hover:bg-muted hover:text-foreground inline-flex size-11 items-center justify-center rounded-xl transition-colors disabled:opacity-60 sm:size-9'
+                'text-muted-foreground hover:bg-muted hover:text-foreground hidden size-11 items-center justify-center rounded-xl transition-colors disabled:opacity-60 sm:inline-flex sm:size-9'
               )}
             >
               <RefreshCw
@@ -1349,19 +1349,20 @@ export function MessageThread({
               }}
               disabled={ticketActionLoading}
               title="Asignarte este lead y proteger la conversación para ti"
-              className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-bold whitespace-nowrap shadow-sm disabled:opacity-60 sm:h-9"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-bold whitespace-nowrap shadow-sm disabled:opacity-60 sm:h-9 sm:shrink-0 sm:gap-2 sm:px-3"
             >
               {ticketActionLoading ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
                 <LockKeyhole className="size-3.5" />
               )}
-              Tomar lead
+              <span className="truncate sm:hidden">Tomar</span>
+              <span className="hidden sm:inline">Tomar lead</span>
             </button>
           ) : assignedAgentId ? (
             <span
               className={cn(
-                'inline-flex h-11 shrink-0 items-center gap-2 rounded-xl border px-3 text-sm font-semibold whitespace-nowrap sm:h-9',
+                'inline-flex h-11 min-w-0 items-center gap-1.5 rounded-xl border px-2 text-sm font-semibold whitespace-nowrap sm:h-9 sm:shrink-0 sm:gap-2 sm:px-3',
                 leadOwnedByCurrentUser
                   ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                   : 'border-border bg-muted/50 text-muted-foreground'
@@ -1373,9 +1374,11 @@ export function MessageThread({
               }
             >
               <LockKeyhole className="size-3.5" />
-              {leadOwnedByCurrentUser
-                ? 'Lead protegido'
-                : `Atiende: ${assignLabel}`}
+              <span className="truncate">
+                {leadOwnedByCurrentUser
+                  ? 'Protegido'
+                  : `Atiende: ${assignLabel}`}
+              </span>
             </span>
           ) : null}
 
@@ -1399,8 +1402,9 @@ export function MessageThread({
                 ? 'Pausar la IA y tomar la conversación'
                 : 'Mantener al ejecutivo asignado y delegar temporalmente a la IA'
             }
+            aria-label={aiHandling ? 'Tomar conversación' : 'Dejar con IA'}
             className={cn(
-              'inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9',
+              'inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-sm font-semibold whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-auto sm:gap-2 sm:px-3',
               aiHandling
                 ? 'bg-emerald-500 text-white hover:bg-emerald-600'
                 : 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 border'
@@ -1413,23 +1417,27 @@ export function MessageThread({
             ) : (
               <Bot className="size-3.5" />
             )}
-            {aiHandling ? 'Tomar conversación' : 'Dejar con IA'}
+            <span className="hidden sm:inline">
+              {aiHandling ? 'Tomar conversación' : 'Dejar con IA'}
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => setQuotationOpen(true)}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/25 inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-bold whitespace-nowrap shadow-lg transition-all hover:-translate-y-0.5 sm:h-9"
+            aria-label="Crear cotización"
+            title="Cotizar"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/25 inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold whitespace-nowrap shadow-lg transition-all hover:-translate-y-0.5 sm:h-9 sm:w-auto sm:gap-2 sm:px-3"
           >
             <ReceiptText className="size-4" />
-            Cotizar
+            <span className="hidden sm:inline">Cotizar</span>
           </button>
 
           {/* Assign dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger
               className={cn(
-                'hover:bg-muted inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm whitespace-nowrap',
+                'hover:bg-muted hidden h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm whitespace-nowrap sm:inline-flex',
                 assignedAgentId ? 'text-primary' : 'text-muted-foreground'
               )}
             >
@@ -1501,15 +1509,15 @@ export function MessageThread({
         </div>
       </div>
 
-      <div className="border-border/60 bg-card/92 flex shrink-0 [scrollbar-width:none] flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain border-b px-2.5 py-1.5 sm:px-5 sm:py-2 [&::-webkit-scrollbar]:hidden">
-        <div className="flex min-w-max flex-nowrap items-center gap-2">
+      <div className="border-border/60 bg-card/92 grid shrink-0 grid-cols-4 items-center gap-1 border-b px-2 py-1.5 sm:flex sm:[scrollbar-width:none] sm:flex-nowrap sm:gap-2 sm:overflow-x-auto sm:overscroll-x-contain sm:px-5 sm:py-2 sm:[&::-webkit-scrollbar]:hidden">
+        <div className="contents sm:flex sm:min-w-max sm:flex-nowrap sm:items-center sm:gap-2">
           <DropdownMenu>
-            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm">
+            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border px-1 text-xs sm:h-9 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm">
               <Building2 className="size-3.5" />
-              <span className="max-w-32 truncate">
+              <span className="min-w-0 truncate sm:max-w-32">
                 {currentDepartment?.name ?? 'Sin departamento'}
               </span>
-              <ChevronDown className="size-3" />
+              <ChevronDown className="hidden size-3 sm:block" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="start"
@@ -1535,10 +1543,10 @@ export function MessageThread({
           </DropdownMenu>
 
           <DropdownMenu>
-            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm">
+            <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border px-1 text-xs sm:h-9 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm">
               <ArrowRightLeft className="size-3.5" />
-              Transferir
-              <ChevronDown className="size-3" />
+              <span className="truncate">Transferir</span>
+              <ChevronDown className="hidden size-3 sm:block" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="start"
@@ -1570,17 +1578,19 @@ export function MessageThread({
                 conversation.status === 'waiting' ? 'open' : 'waiting'
               )
             }
-            className="border-border text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className="border-border text-foreground hover:bg-muted inline-flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border px-1 text-xs disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm"
           >
             <PauseCircle className="size-3.5" />
-            {conversation.status === 'waiting' ? 'Retomar' : 'En espera'}
+            <span className="truncate">
+              {conversation.status === 'waiting' ? 'Retomar' : 'En espera'}
+            </span>
           </button>
 
           {conversation.status === 'closed' ? (
             <button
               type="button"
               onClick={() => handleStatusChange('open')}
-              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium"
+              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border px-1 text-xs font-medium sm:h-9 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm"
             >
               <RotateCcw className="size-3.5" />
               Reabrir
@@ -1597,7 +1607,7 @@ export function MessageThread({
                   ? 'Primero debes aceptar el ticket'
                   : 'Resolver con etiqueta y nota obligatorias'
               }
-              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+              className="border-border bg-background text-foreground hover:bg-muted inline-flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border px-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm"
             >
               <CheckCircle2 className="size-3.5" />
               Resolver
@@ -1605,7 +1615,7 @@ export function MessageThread({
           )}
         </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div className="ml-auto hidden shrink-0 items-center gap-1.5 sm:flex">
           <QuickReplyPicker
             departmentId={conversation.department_id}
             onSelect={(reply: QuickReply) =>
