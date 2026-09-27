@@ -376,6 +376,65 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     );
   });
 
+  it('sends catalog photos instead of handing off a general photo request', async () => {
+    const candidate = {
+      id: 'vehicle-1',
+      make: 'Toyota',
+      model: 'RAV4',
+      year: 2024,
+    };
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        catalogAiEnabled: true,
+        catalogAiAutoSend: true,
+        permissions: {
+          ...AI_CONFIG_RUNTIME_DEFAULTS.permissions,
+          query_catalog: true,
+          suggest_catalog_items: true,
+        },
+      })
+    );
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content: 'Mándame fotos de los vehículos disponibles',
+      },
+    ]);
+    h.findCatalogCandidates.mockResolvedValue({
+      requested: true,
+      candidates: [candidate],
+    });
+    h.loadCatalogCandidatesByIds.mockResolvedValue([candidate]);
+    h.generateReply.mockResolvedValue({
+      text: 'Necesitas hablar con un ejecutivo.',
+      handoff: true,
+      replyMode: 'text',
+    });
+
+    await dispatchInboundToAiReply(ARGS);
+
+    expect(h.sendMessageToConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      expect.objectContaining({
+        contentText: expect.stringContaining('fotos'),
+        senderType: 'bot',
+      })
+    );
+    expect(h.sendCatalogCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({ candidates: [candidate] })
+    );
+    expect(h.state.updatePayload).not.toEqual(
+      expect.objectContaining({ ai_state: 'waiting_for_human' })
+    );
+    expect(h.finalizeAiPoints).toHaveBeenCalledWith(
+      'operation-1',
+      expect.objectContaining({
+        metadata: expect.objectContaining({ outcome: 'reply_generated' }),
+      })
+    );
+  });
+
   it('stores only the lead fields returned by the automatic agent', async () => {
     h.loadAiConfig.mockResolvedValue(
       aiConfig({

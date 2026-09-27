@@ -29,6 +29,29 @@ interface DispatchArgs {
   sourceMessageExternalId: string;
 }
 
+function normalizeIntentText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es');
+}
+
+function explicitlyRequestsHuman(message: string): boolean {
+  return /\b(humano|persona|ejecutivo|ejecutiva|asesor|asesora|vendedor|vendedora)\b/.test(
+    normalizeIntentText(message)
+  );
+}
+
+function catalogDeliveryIntroduction(language: AiConfig['language']): string {
+  if (language === 'en') {
+    return 'Of course. I am sending you the available vehicle photos and details now.';
+  }
+  if (language === 'pt-BR') {
+    return 'Claro. Estou enviando agora as fotos e os detalhes dos veículos disponíveis.';
+  }
+  return 'Claro. Te envío ahora las fotos y los detalles de los vehículos disponibles.';
+}
+
 async function prepareAudioReply(args: {
   db: ReturnType<typeof supabaseAdmin>;
   config: AiConfig;
@@ -386,6 +409,28 @@ export async function dispatchInboundToAiReply(
       replyMode = result.replyMode;
       catalogMatches = result.catalogMatches;
       leadProfilePatch = result.leadProfilePatch ?? {};
+
+      // A valid catalog match is actionable by Nexora itself. Do not hand the
+      // customer to a person merely because the model failed to realize the
+      // matching vehicle cards (including their real photos) are sent next.
+      // An explicit request to speak with a person still takes precedence.
+      const latestCustomerMessage =
+        [...messages].reverse().find((message) => message.role === 'user')
+          ?.content ?? '';
+      const catalogDeliveryReady =
+        config.catalogAiAutoSend &&
+        catalogMatches.length > 0 &&
+        Boolean(conv.whatsapp_config_id);
+      if (
+        catalogDeliveryReady &&
+        !explicitlyRequestsHuman(latestCustomerMessage) &&
+        (handoff || !text.trim())
+      ) {
+        handoff = false;
+        replyMode = 'text';
+        text = catalogDeliveryIntroduction(config.language);
+      }
+
       providerCompleted = true;
       await finalizeAiPoints(reservation.operationId, {
         metadata: {

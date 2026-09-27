@@ -240,7 +240,7 @@ export function isCatalogRequest(
       normalized
     );
   const explicitlyRequestsItems =
-    /\b(envia|enviame|enviar|muestra|muestrame|mostrar|fotos|foto|imagenes|imagen|opciones|stock)\b/.test(
+    /\b(envia|enviame|enviar|manda|mandame|comparti|comparteme|muestra|muestrame|mostrar|ensena|ensename|fotos|foto|fotografias|fotografia|imagenes|imagen|opciones|stock)\b/.test(
       normalized
     );
   const requestsVehicleDetails =
@@ -324,8 +324,26 @@ const GENERIC_TOKENS = new Set([
   'tienes',
   'mostrar',
   'muestrame',
+  'muestra',
+  'ensena',
+  'ensename',
   'enviar',
   'envia',
+  'enviame',
+  'manda',
+  'mandame',
+  'comparti',
+  'comparteme',
+  'foto',
+  'fotos',
+  'fotografia',
+  'fotografias',
+  'imagen',
+  'imagenes',
+  'disponible',
+  'disponibles',
+  'hay',
+  'stock',
   'opciones',
   'opcion',
   'necesito',
@@ -344,9 +362,12 @@ export function rankCatalogCandidates(
   const fuel = requestedFuel(message);
   const transmission = requestedTransmission(message);
   const normalized = normalizeCatalogSearch(message);
+  const requestsCatalogMedia =
+    /\b(foto|fotos|fotografia|fotografias|imagen|imagenes)\b/.test(normalized);
   const allowsGeneralCatalog =
+    requestsCatalogMedia ||
     /\b(catalogo|inventario|opciones|stock)\b/.test(normalized) ||
-    (/\b(envia|enviame|enviar|muestra|muestrame|mostrar|ver)\b/.test(
+    (/\b(envia|enviame|enviar|manda|mandame|comparti|comparteme|muestra|muestrame|mostrar|ensena|ensename|ver)\b/.test(
       normalized
     ) &&
       /\b(vehiculo|vehiculos|auto|autos|automovil|automoviles|camioneta|camionetas|suv|sedan|hatchback|pickup|citycar|modelo|modelos)\b/.test(

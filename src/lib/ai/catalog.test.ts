@@ -54,6 +54,9 @@ describe('AI catalog request detection', () => {
     expect(isCatalogRequest('Muéstrame camionetas diésel 4x4')).toBe(true);
     expect(isCatalogRequest('¿Tienen Hyundai Tucson disponible?')).toBe(true);
     expect(isCatalogRequest('Envíame fotos del BAIC X55')).toBe(true);
+    expect(isCatalogRequest('Mándame fotos de los vehículos disponibles')).toBe(
+      true
+    );
     expect(isCatalogRequest('¿Cuál es el pie inicial del BAIC X55?')).toBe(
       true
     );
@@ -131,6 +134,29 @@ describe('AI catalog ranking and privacy', () => {
         3
       )
     ).toEqual([]);
+  });
+
+  it('returns available vehicles for a general photo request', () => {
+    const older = candidate({
+      id: 'older',
+      make: 'BAIC',
+      model: 'X55',
+      updatedAt: '2026-07-01T12:00:00.000Z',
+    });
+    const newer = candidate({
+      id: 'newer',
+      make: 'BMW',
+      model: 'I180',
+      updatedAt: '2026-07-02T12:00:00.000Z',
+    });
+
+    expect(
+      rankCatalogCandidates(
+        [older, newer],
+        'Mándame fotos de los vehículos disponibles',
+        3
+      ).map((item) => item.id)
+    ).toEqual(['newer', 'older']);
   });
 
   it('resolves a named or ordinal choice to one previously shown vehicle', () => {
