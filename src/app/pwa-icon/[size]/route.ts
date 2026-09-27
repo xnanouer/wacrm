@@ -12,7 +12,7 @@ export async function GET(
   }
 
   return Response.redirect(
-    new URL(`/pwa/nexora-app-icon-${requestedSize}.png`, request.url),
+    new URL(`/pwa/nexora-neon-icon-${requestedSize}.png`, request.url),
     307
   );
 }

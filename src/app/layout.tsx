@@ -37,18 +37,24 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: '/pwa/nexora-app-icon-192.png',
+        url: '/pwa/nexora-neon-favicon-32.png',
+        sizes: '32x32',
+        type: 'image/png',
+      },
+      {
+        url: '/pwa/nexora-neon-icon-192.png',
         sizes: '192x192',
         type: 'image/png',
       },
       {
-        url: '/pwa/nexora-app-icon-512.png',
+        url: '/pwa/nexora-neon-icon-512.png',
         sizes: '512x512',
         type: 'image/png',
       },
     ],
+    shortcut: '/pwa/nexora-neon-favicon-32.png',
     apple: {
-      url: '/pwa/nexora-app-icon-180.png',
+      url: '/pwa/nexora-neon-icon-180.png',
       sizes: '180x180',
       type: 'image/png',
     },
