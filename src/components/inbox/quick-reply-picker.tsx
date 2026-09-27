@@ -10,13 +10,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 
 export function QuickReplyPicker({
   departmentId,
   onSelect,
+  compact = false,
 }: {
   departmentId?: string;
   onSelect: (reply: QuickReply) => void;
+  compact?: boolean;
 }) {
   const [replies, setReplies] = useState<QuickReply[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,9 +47,16 @@ export function QuickReplyPicker({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="text-muted-foreground hover:bg-muted hover:text-foreground hidden h-8 items-center gap-1.5 rounded-md px-2 text-xs sm:inline-flex">
+      <DropdownMenuTrigger
+        aria-label="Respuestas rápidas"
+        title="Respuestas rápidas"
+        className={cn(
+          'text-muted-foreground hover:bg-muted hover:text-foreground hidden items-center justify-center rounded-xl text-xs sm:inline-flex',
+          compact ? 'size-9 p-0' : 'h-8 gap-1.5 px-2'
+        )}
+      >
         <Sparkles className="size-3.5" />
-        Respuestas rápidas
+        {!compact && <span>Respuestas rápidas</span>}
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
