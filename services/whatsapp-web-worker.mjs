@@ -8,6 +8,10 @@ import nextEnv from '@next/env';
 import qrcode from 'qrcode';
 import whatsappWeb from 'whatsapp-web.js';
 import { createClient } from '@supabase/supabase-js';
+import {
+  findVisibleProfilePicture,
+  profilePictureLookupIds,
+} from './whatsapp-profile-picture.mjs';
 
 const { loadEnvConfig } = nextEnv;
 loadEnvConfig(process.cwd());
@@ -37,6 +41,7 @@ const sessions = new Map();
 const cleanedChromiumProfiles = new Set();
 const PROFILE_PICTURE_CACHE_MS = 6 * 60 * 60 * 1000;
 const HIDDEN_PROFILE_PICTURE_CACHE_MS = 30 * 60 * 1000;
+const PROFILE_PICTURE_REFRESH_MS = 6 * 60 * 60 * 1000;
 const MAX_OUTBOUND_MEDIA_BYTES = 25 * 1024 * 1024;
 let databaseClient = null;
 
@@ -508,51 +513,53 @@ function messagePeerJid(message, deviceOutbound) {
   return String(direct || remote || '');
 }
 
-async function resolveContactAvatarUrl(session, contact, peerJid) {
+async function resolveContactAvatarUrl(
+  session,
+  contact,
+  peerJid,
+  phoneJid = null
+) {
   if (!session || !peerJid) return undefined;
 
-  const cacheKey = contact?.id?._serialized || peerJid;
+  const contactId = contact?.id?._serialized || null;
+  const lookupIds = profilePictureLookupIds({
+    contactId,
+    peerJid,
+    phoneJid,
+  });
+  if (lookupIds.length === 0) return undefined;
+
+  const cacheKey = phoneJid || contactId || peerJid;
   const cached = session.profilePictureCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.url;
   if (cached) session.profilePictureCache.delete(cacheKey);
 
-  try {
-    const rawUrl = contact
-      ? await contact.getProfilePicUrl()
-      : await session.client.getProfilePicUrl(peerJid);
-    const url =
-      typeof rawUrl === 'string' && /^https:\/\//i.test(rawUrl) ? rawUrl : null;
+  const result = await findVisibleProfilePicture(lookupIds, (lookupId) =>
+    session.client.getProfilePicUrl(lookupId)
+  );
+  if (result.status === 'visible') {
     session.profilePictureCache.set(cacheKey, {
-      url,
-      expiresAt:
-        Date.now() +
-        (url ? PROFILE_PICTURE_CACHE_MS : HIDDEN_PROFILE_PICTURE_CACHE_MS),
+      url: result.url,
+      expiresAt: Date.now() + PROFILE_PICTURE_CACHE_MS,
     });
-    return url;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (
-      message === 'r' ||
-      /No LID for user|ServerStatusCodeError|profile picture not available/i.test(
-        message
-      )
-    ) {
-      session.profilePictureCache.set(cacheKey, {
-        url: null,
-        expiresAt: Date.now() + HIDDEN_PROFILE_PICTURE_CACHE_MS,
-      });
-      return null;
-    }
-
-    // A transient WhatsApp/CDN failure must not erase a previously stored
-    // avatar. Privacy-restricted photos resolve as `undefined` above and are
-    // intentionally represented as null so Nexora falls back to initials.
-    console.warn(
-      `[whatsapp-web] Could not refresh profile picture for ${peerJid}:`,
-      message
-    );
-    return undefined;
+    return result.url;
   }
+  if (result.status === 'hidden') {
+    session.profilePictureCache.set(cacheKey, {
+      url: null,
+      expiresAt: Date.now() + HIDDEN_PROFILE_PICTURE_CACHE_MS,
+    });
+    return null;
+  }
+
+  // A transient WhatsApp/CDN failure must not erase a previously stored
+  // avatar. Privacy-restricted photos resolve as null above so Nexora falls
+  // back to initials without exposing anything WhatsApp did not authorize.
+  console.warn(
+    `[whatsapp-web] Could not refresh profile picture for ${peerJid}:`,
+    result.error instanceof Error ? result.error.message : result.error
+  );
+  return undefined;
 }
 
 async function refreshRecentContactAvatars(accountId, connectionId, session) {
@@ -591,10 +598,19 @@ async function refreshRecentContactAvatars(accountId, connectionId, session) {
         const whatsappContact = await session.client
           .getContactById(peerJid)
           .catch(() => null);
+        const [identity] = await session.client
+          .getContactLidAndPhone([peerJid])
+          .catch(() => []);
+        const phoneJid =
+          identity?.pn ||
+          (storedContact.phone_normalized
+            ? `${storedContact.phone_normalized}@c.us`
+            : null);
         const avatarUrl = await resolveContactAvatarUrl(
           session,
           whatsappContact,
-          peerJid
+          peerJid,
+          phoneJid
         );
         if (avatarUrl === undefined || storedContact.avatar_url === avatarUrl) {
           return;
@@ -637,7 +653,12 @@ async function forwardMessageToNexora(
     identity?.pn?.split('@')[0] || contact?.number || peerJid.split('@')[0]
   ).replace(/\D/g, '');
   if (!phone) return;
-  const avatarUrl = await resolveContactAvatarUrl(session, contact, peerJid);
+  const avatarUrl = await resolveContactAvatarUrl(
+    session,
+    contact,
+    peerJid,
+    identity?.pn || `${phone}@c.us`
+  );
 
   const rawContentType = message.type || 'text';
   let contentType = rawContentType;
@@ -1192,6 +1213,8 @@ function stopDeviceMessageSync(session) {
   session.deviceSyncTimer = null;
   if (session.mediaRepairTimer) clearInterval(session.mediaRepairTimer);
   session.mediaRepairTimer = null;
+  if (session.avatarRefreshTimer) clearInterval(session.avatarRefreshTimer);
+  session.avatarRefreshTimer = null;
 }
 
 function createSession(accountId, connectionId, useLegacyClientId = false) {
@@ -1240,6 +1263,7 @@ function createSession(accountId, connectionId, useLegacyClientId = false) {
     deviceSyncInProgress: false,
     deviceSyncTimer: null,
     mediaRepairTimer: null,
+    avatarRefreshTimer: null,
   };
 
   client.on('qr', async (rawQr) => {
@@ -1352,6 +1376,17 @@ function createSession(accountId, connectionId, useLegacyClientId = false) {
         );
       }
     );
+    session.avatarRefreshTimer = setInterval(() => {
+      void refreshRecentContactAvatars(accountId, connectionId, session).catch(
+        (error) => {
+          console.error(
+            `[whatsapp-web:${accountId}:${connectionId}] scheduled profile picture refresh failed:`,
+            error instanceof Error ? error.message : error
+          );
+        }
+      );
+    }, PROFILE_PICTURE_REFRESH_MS);
+    session.avatarRefreshTimer.unref?.();
   });
 
   client.on('auth_failure', (message) => {
