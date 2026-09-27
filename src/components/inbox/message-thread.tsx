@@ -1259,7 +1259,7 @@ export function MessageThread({
           ) : null}
         </div>
 
-        <div className="border-border/50 -mx-2.5 grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 border-t px-2.5 pt-2 pb-0.5 sm:mx-0 sm:flex sm:[scrollbar-width:none] sm:flex-nowrap sm:gap-2 sm:overflow-x-auto sm:overscroll-x-contain sm:px-0 sm:pb-0 sm:[&::-webkit-scrollbar]:hidden">
+        <div className="border-border/50 -mx-2.5 grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 border-t px-2.5 pt-2 pb-0.5 sm:mx-0 sm:flex sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-0 sm:pb-0">
           {/* Contact-panel toggle — desktop only. The contact sidebar
               eats a chunk of horizontal width that crowds the thread on
               smaller laptops; this lets agents reclaim it when they just
@@ -1509,8 +1509,8 @@ export function MessageThread({
         </div>
       </div>
 
-      <div className="border-border/60 bg-card/92 grid shrink-0 grid-cols-4 items-center gap-1 border-b px-2 py-1.5 sm:flex sm:[scrollbar-width:none] sm:flex-nowrap sm:gap-2 sm:overflow-x-auto sm:overscroll-x-contain sm:px-5 sm:py-2 sm:[&::-webkit-scrollbar]:hidden">
-        <div className="contents sm:flex sm:min-w-max sm:flex-nowrap sm:items-center sm:gap-2">
+      <div className="border-border/60 bg-card/92 grid shrink-0 grid-cols-4 items-center gap-1 border-b px-2 py-1.5 sm:flex sm:flex-wrap sm:gap-2 sm:overflow-visible sm:px-5 sm:py-2">
+        <div className="contents sm:flex sm:min-w-0 sm:flex-wrap sm:items-center sm:gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger className="border-border text-foreground hover:bg-muted inline-flex h-10 min-w-0 items-center justify-center gap-1 rounded-xl border px-1 text-xs sm:h-9 sm:w-auto sm:gap-2 sm:px-3 sm:text-sm">
               <Building2 className="size-3.5" />
