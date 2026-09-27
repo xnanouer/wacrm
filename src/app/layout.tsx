@@ -35,8 +35,23 @@ export const metadata: Metadata = {
     title: 'Nexora CRM',
   },
   icons: {
-    icon: '/pwa-icon/512',
-    apple: '/pwa-icon/192',
+    icon: [
+      {
+        url: '/pwa/nexora-app-icon-192.png',
+        sizes: '192x192',
+        type: 'image/png',
+      },
+      {
+        url: '/pwa/nexora-app-icon-512.png',
+        sizes: '512x512',
+        type: 'image/png',
+      },
+    ],
+    apple: {
+      url: '/pwa/nexora-app-icon-180.png',
+      sizes: '180x180',
+      type: 'image/png',
+    },
   },
 };
 
