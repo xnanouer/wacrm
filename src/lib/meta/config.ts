@@ -92,3 +92,10 @@ export function resolvePublicOrigin(request: Request): string {
 export function metaOAuthRedirectUri(request: Request): string {
   return `${resolvePublicOrigin(request)}/api/meta/oauth/callback`;
 }
+
+export function metaSettingsUrl(request: Request, result: string): URL {
+  const url = new URL('/settings', resolvePublicOrigin(request));
+  url.searchParams.set('tab', 'channels');
+  url.searchParams.set('meta', result);
+  return url;
+}

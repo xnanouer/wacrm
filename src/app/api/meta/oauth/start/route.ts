@@ -12,6 +12,7 @@ import {
   getMetaWebhookVerifyToken,
   isMetaOAuthChannel,
   metaOAuthRedirectUri,
+  metaSettingsUrl,
 } from '@/lib/meta/config';
 import {
   createMetaOAuthState,
@@ -24,9 +25,7 @@ export async function GET(request: Request) {
     const ctx = await requireRole('admin');
     const channel = new URL(request.url).searchParams.get('channel');
     if (!isMetaOAuthChannel(channel)) {
-      return NextResponse.redirect(
-        new URL('/settings?tab=channels&meta=invalid_channel', request.url)
-      );
+      return NextResponse.redirect(metaSettingsUrl(request, 'invalid_channel'));
     }
     getMetaWebhookVerifyToken();
     const limit = checkRateLimit(
@@ -63,7 +62,7 @@ export async function GET(request: Request) {
       /META_(?:APP_|WEBHOOK_)|Meta (?:no|webhook no)/.test(error.message)
     ) {
       return NextResponse.redirect(
-        new URL('/settings?tab=channels&meta=not_configured', request.url)
+        metaSettingsUrl(request, 'not_configured')
       );
     }
     return toErrorResponse(error);

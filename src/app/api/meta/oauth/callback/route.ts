@@ -14,6 +14,7 @@ import {
 import {
   metaOAuthRedirectUri,
   metaOAuthScopesFor,
+  metaSettingsUrl,
   type MetaOAuthChannel,
 } from '@/lib/meta/config';
 import {
@@ -22,7 +23,7 @@ import {
 } from '@/lib/meta/oauth-state';
 
 function settingsRedirect(request: Request, result: string): URL {
-  return new URL(`/settings?tab=channels&meta=${result}`, request.url);
+  return metaSettingsUrl(request, result);
 }
 
 function redirectAndClearState(request: Request, result: string): NextResponse {
