@@ -181,6 +181,7 @@ export async function GET(request: Request) {
         subscribed = await subscribePageWebhooks({
           pageId: page.id,
           pageAccessToken: page.access_token,
+          channel: state.channel,
         });
       } catch (error) {
         subscriptionError =

@@ -3,6 +3,7 @@ import { loadAiConfig } from './config';
 import { buildConversationContext } from './context';
 import { generateAgentReply } from './orchestrator';
 import { loadCatalogCandidatesByIds, sendCatalogCandidates } from './catalog';
+import { sendSocialMessageToConversation } from '@/lib/meta/send-message';
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
 import {
   finalizeAiPoints,
@@ -27,6 +28,39 @@ interface DispatchArgs {
   configOwnerUserId: string;
   /** Stable provider-side identifier of the inbound message. */
   sourceMessageExternalId: string;
+}
+
+interface ConversationTransport {
+  channel_connection_id: string | null;
+}
+
+async function sendAutomaticMessage(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  conversation: ConversationTransport,
+  input: {
+    conversationId: string;
+    messageType: 'text' | 'audio';
+    contentText: string;
+    mediaUrl?: string | null;
+  }
+): Promise<{ messageId: string }> {
+  if (conversation.channel_connection_id) {
+    return sendSocialMessageToConversation(db, accountId, {
+      conversationId: input.conversationId,
+      messageType: 'text',
+      contentText: input.contentText,
+      senderType: 'bot',
+    });
+  }
+  return sendMessageToConversation(db, accountId, {
+    conversationId: input.conversationId,
+    messageType: input.messageType,
+    contentText: input.contentText,
+    mediaUrl: input.mediaUrl,
+    senderType: 'bot',
+    pauseFlows: false,
+  });
 }
 
 function normalizeIntentText(value: string): string {
@@ -191,7 +225,7 @@ export async function dispatchInboundToAiReply(
     const { data: conv, error: convErr } = await db
       .from('conversations')
       .select(
-        'assigned_agent_id, ai_autoreply_disabled, ai_reply_count, ai_state, human_requested_at, whatsapp_config_id, channel_connection_id'
+        'assigned_agent_id, ai_autoreply_disabled, ai_reply_count, ai_state, human_requested_at, whatsapp_config_id, channel_connection_id, channel'
       )
       .eq('id', conversationId)
       .eq('account_id', accountId)
@@ -304,12 +338,10 @@ export async function dispatchInboundToAiReply(
           config.afterHoursNoPointsBehavior === 'static_message' &&
           staticMessage
         ) {
-          await sendMessageToConversation(db, accountId, {
+          await sendAutomaticMessage(db, accountId, conv, {
             conversationId,
             messageType: 'text',
             contentText: staticMessage,
-            senderType: 'bot',
-            pauseFlows: false,
           });
         }
         await db
@@ -363,12 +395,10 @@ export async function dispatchInboundToAiReply(
           .eq('account_id', accountId)
           .maybeSingle();
         if (stoppedConversation?.ai_pause_reason === 'coverage_points_limit') {
-          await sendMessageToConversation(db, accountId, {
+          await sendAutomaticMessage(db, accountId, conv, {
             conversationId,
             messageType: 'text',
             contentText: config.outOfHoursMessage.trim(),
-            senderType: 'bot',
-            pauseFlows: false,
           });
         }
       }
@@ -420,7 +450,7 @@ export async function dispatchInboundToAiReply(
       const catalogDeliveryReady =
         config.catalogAiAutoSend &&
         catalogMatches.length > 0 &&
-        Boolean(conv.whatsapp_config_id);
+        Boolean(conv.whatsapp_config_id || conv.channel_connection_id);
       if (
         catalogDeliveryReady &&
         !explicitlyRequestsHuman(latestCustomerMessage) &&
@@ -478,12 +508,10 @@ export async function dispatchInboundToAiReply(
           : config.language === 'pt-BR'
             ? 'Obrigado. Vou pedir para alguém da equipe continuar com você por aqui.'
             : 'Gracias. Voy a pedir apoyo a un ejecutivo para continuar contigo por aquí.');
-      await sendMessageToConversation(db, accountId, {
+      await sendAutomaticMessage(db, accountId, conv, {
         conversationId,
         messageType: 'text',
         contentText: handoffText,
-        senderType: 'bot',
-        pauseFlows: false,
       });
 
       await db
@@ -512,7 +540,8 @@ export async function dispatchInboundToAiReply(
       replyMode === 'audio' &&
       config.audioEnabled &&
       config.permissions.generate_audio &&
-      config.provider === 'openai'
+      config.provider === 'openai' &&
+      !conv.channel_connection_id
     ) {
       audioUrl = await prepareAudioReply({
         db,
@@ -529,13 +558,11 @@ export async function dispatchInboundToAiReply(
       });
     }
 
-    const sentReply = await sendMessageToConversation(db, accountId, {
+    const sentReply = await sendAutomaticMessage(db, accountId, conv, {
       conversationId,
       messageType: audioUrl ? 'audio' : 'text',
       contentText: text,
       mediaUrl: audioUrl,
-      senderType: 'bot',
-      pauseFlows: false,
     });
 
     await db
@@ -555,7 +582,7 @@ export async function dispatchInboundToAiReply(
     if (
       config.catalogAiAutoSend &&
       catalogMatches.length > 0 &&
-      conv.whatsapp_config_id
+      (conv.whatsapp_config_id || conv.channel_connection_id)
     ) {
       try {
         // Re-read immediately before dispatch. A unit hidden, sold or
@@ -572,7 +599,12 @@ export async function dispatchInboundToAiReply(
             conversationId,
             contactId,
             actorUserId: configOwnerUserId,
+            channel:
+              conv.channel === 'facebook' || conv.channel === 'instagram'
+                ? conv.channel
+                : 'whatsapp',
             whatsappConfigId: conv.whatsapp_config_id,
+            channelConnectionId: conv.channel_connection_id,
             introductionText: text,
             introMessageId: sentReply.messageId,
             candidates,

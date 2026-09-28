@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { sendSocialMessageToConversation } from '@/lib/meta/send-message';
 import { buildPrivateMediaUrl } from '@/lib/storage/private-media-reference';
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
 import type { ChatMessage } from './types';
@@ -730,7 +731,9 @@ export async function sendCatalogCandidates(args: {
   conversationId: string;
   contactId: string;
   actorUserId: string;
-  whatsappConfigId: string;
+  channel: 'whatsapp' | 'facebook' | 'instagram';
+  whatsappConfigId?: string | null;
+  channelConnectionId?: string | null;
   introductionText: string;
   introMessageId: string;
   candidates: AiCatalogCandidate[];
@@ -749,7 +752,9 @@ export async function sendCatalogCandidates(args: {
     conversationId,
     contactId,
     actorUserId,
+    channel,
     whatsappConfigId,
+    channelConnectionId,
     introductionText,
     introMessageId,
     candidates,
@@ -759,6 +764,12 @@ export async function sendCatalogCandidates(args: {
   if (candidates.length === 0) {
     throw new Error('catalog_candidates_required');
   }
+  if (
+    (channel === 'whatsapp' && (!whatsappConfigId || channelConnectionId)) ||
+    (channel !== 'whatsapp' && (!channelConnectionId || whatsappConfigId))
+  ) {
+    throw new Error('catalog_channel_connection_mismatch');
+  }
 
   const { data: batch, error: batchError } = await db
     .from('catalog_share_batches')
@@ -767,9 +778,10 @@ export async function sendCatalogCandidates(args: {
       contact_id: contactId,
       conversation_id: conversationId,
       actor_user_id: actorUserId,
-      channel: 'whatsapp',
-      whatsapp_config_id: whatsappConfigId,
-      channel_connection_id: null,
+      channel,
+      whatsapp_config_id: channel === 'whatsapp' ? whatsappConfigId : null,
+      channel_connection_id:
+        channel === 'whatsapp' ? null : channelConnectionId,
       introduction_text: introductionText.slice(0, 2000),
       intro_message_id: introMessageId,
       status: 'sending',
@@ -836,19 +848,37 @@ export async function sendCatalogCandidates(args: {
         throw new Error('catalog_primary_image_missing');
       }
 
-      let firstResult: Awaited<
-        ReturnType<typeof sendMessageToConversation>
-      > | null = null;
+      let firstResult: {
+        messageId: string;
+        externalMessageId: string;
+      } | null = null;
       for (const [imageIndex, imagePath] of imagePaths.entries()) {
-        const result = await sendMessageToConversation(db, accountId, {
-          conversationId,
-          messageType: 'image',
-          mediaUrl: buildPrivateMediaUrl('catalog-media', imagePath),
-          contentText: imageIndex === 0 ? caption : null,
-          senderType,
-          senderId: senderType === 'agent' ? actorUserId : null,
-          pauseFlows: false,
-        });
+        const mediaUrl = buildPrivateMediaUrl('catalog-media', imagePath);
+        const result =
+          channel === 'whatsapp'
+            ? await sendMessageToConversation(db, accountId, {
+                conversationId,
+                messageType: 'image',
+                mediaUrl,
+                contentText: imageIndex === 0 ? caption : null,
+                senderType,
+                senderId: senderType === 'agent' ? actorUserId : null,
+                pauseFlows: false,
+              }).then((sent) => ({
+                messageId: sent.messageId,
+                externalMessageId: sent.whatsappMessageId,
+              }))
+            : await sendSocialMessageToConversation(db, accountId, {
+                conversationId,
+                messageType: 'image',
+                mediaUrl,
+                contentText: imageIndex === 0 ? caption : null,
+                senderType,
+                senderId: senderType === 'agent' ? actorUserId : null,
+              }).then((sent) => ({
+                messageId: sent.messageId,
+                externalMessageId: sent.metaMessageId,
+              }));
         firstResult ??= result;
         imagesSent += 1;
       }
@@ -859,7 +889,7 @@ export async function sendCatalogCandidates(args: {
         .from('catalog_item_shares')
         .update({
           message_id: firstResult.messageId,
-          external_message_id: firstResult.whatsappMessageId,
+          external_message_id: firstResult.externalMessageId,
           result: 'sent',
           completed_at: new Date().toISOString(),
         })
@@ -871,6 +901,7 @@ export async function sendCatalogCandidates(args: {
         actor_user_id: actorUserId,
         metadata: {
           source,
+          channel,
           conversation_id: conversationId,
           share_batch_id: batch.id,
         },

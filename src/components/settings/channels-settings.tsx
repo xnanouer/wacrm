@@ -137,6 +137,7 @@ export function ChannelsSettings() {
   const searchParams = useSearchParams();
   const [data, setData] = useState<ConnectionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -154,6 +155,39 @@ export function ChannelsSettings() {
       setLoading(false);
     }
   }, []);
+
+  const syncWebhooks = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch('/api/meta/connections', {
+        method: 'POST',
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        updated?: number;
+        failed?: number;
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(
+          payload?.error || 'No se pudieron actualizar los canales'
+        );
+      }
+      if ((payload?.failed ?? 0) > 0) {
+        toast.warning(
+          `Se actualizaron ${payload?.updated ?? 0} canales; ${payload?.failed} requieren reconexión.`
+        );
+      } else {
+        toast.success('Canales y confirmaciones de entrega actualizados');
+      }
+      await load();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'No se pudieron actualizar'
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -358,8 +392,13 @@ export function ChannelsSettings() {
                 reconozca el origen de cada conversación.
               </p>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => void load()}>
-              <RefreshCw className="size-4" />
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={syncing}
+              onClick={() => void syncWebhooks()}
+            >
+              <RefreshCw className={cn('size-4', syncing && 'animate-spin')} />
               Actualizar
             </Button>
           </div>

@@ -68,7 +68,8 @@ https://crm.tudominio.com/api/meta/webhook
 ```
 
 Usa exactamente `META_WEBHOOK_VERIFY_TOKEN` como token de verificación.
-Suscribe el objeto **Page** a `messages`, y el objeto
+Suscribe el objeto **Page** a `messages`, `message_deliveries` y
+`message_reads`, y el objeto
 **Instagram** a `messages`, `messaging_postbacks`, `messaging_seen` y
 `message_reactions`.
 
@@ -94,7 +95,13 @@ Login for Business.
 - Los mensajes entrantes crean o reabren un ticket en el inbox.
 - El contacto queda identificado mediante su ID externo por canal y conexión.
 - Cada conversación muestra una insignia de WhatsApp, Facebook o Instagram.
-- En esta primera versión, los agentes responden texto por Facebook e Instagram.
+- Los agentes y el agente IA responden texto por Facebook e Instagram.
+- El catálogo puede enviar las fichas comerciales y fotos reales por los tres
+  canales. Las imágenes privadas usan URLs firmadas y temporales para que Meta
+  pueda descargarlas sin publicar el bucket.
+- Messenger muestra enviado, entregado y visto. Instagram muestra enviado y
+  visto según los eventos que entrega Meta; un mensaje visto también queda
+  implícitamente entregado.
 - Desconectar elimina el token cifrado, conserva el historial y bloquea nuevos
   envíos desde esa conexión.
 - Una página o cuenta profesional solo puede estar activa en una empresa a la

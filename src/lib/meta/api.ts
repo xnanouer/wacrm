@@ -158,12 +158,18 @@ export async function fetchInstagramAccount(input: {
 export async function subscribePageWebhooks(input: {
   pageId: string;
   pageAccessToken: string;
+  channel: MetaOAuthChannel;
 }): Promise<boolean> {
   const params = authorizedParams(input.pageAccessToken);
   // `messaging_feedback` is no longer offered by current Messenger webhook
   // versions. Requesting an unavailable field makes the whole subscription
   // fail, including the `messages` event Nexora actually consumes.
-  params.set('subscribed_fields', 'messages');
+  params.set(
+    'subscribed_fields',
+    input.channel === 'facebook'
+      ? 'messages,message_deliveries,message_reads'
+      : 'messages'
+  );
   const payload = await metaFetch<{ success?: boolean }>(
     `${graphUrl(`${input.pageId}/subscribed_apps`)}?${params}`,
     { method: 'POST' }
@@ -216,6 +222,40 @@ export async function sendSocialText(input: {
       body: JSON.stringify({
         recipient: { id: input.participantId },
         message: { text: input.text },
+        ...(input.channel === 'facebook' ? { messaging_type: 'RESPONSE' } : {}),
+      }),
+    }
+  );
+  if (!payload.message_id) {
+    throw new MetaApiError('Meta no devolvió un identificador de mensaje', 502);
+  }
+  return { messageId: payload.message_id };
+}
+
+export async function sendSocialImage(input: {
+  channel: 'facebook' | 'instagram';
+  channelAccountId: string;
+  participantId: string;
+  accessToken: string;
+  imageUrl: string;
+}): Promise<{ messageId: string }> {
+  const params = authorizedParams(input.accessToken);
+  const payload = await metaFetch<{ message_id?: string }>(
+    `${graphUrl(`${input.channelAccountId}/messages`)}?${params}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: input.participantId },
+        message: {
+          attachment: {
+            type: 'image',
+            payload: {
+              url: input.imageUrl,
+              ...(input.channel === 'facebook' ? { is_reusable: false } : {}),
+            },
+          },
+        },
         ...(input.channel === 'facebook' ? { messaging_type: 'RESPONSE' } : {}),
       }),
     }

@@ -184,8 +184,10 @@ export async function POST(request: Request) {
             conversationId,
             messageType: message_type,
             contentText: content_text,
+            mediaUrl: media_url,
             replyToMessageId: reply_to_message_id,
             senderId: user.id,
+            senderType: 'agent',
           }
         );
         return NextResponse.json({

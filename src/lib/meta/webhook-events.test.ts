@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseMetaMessagingEvents } from './webhook-events';
+import {
+  parseMetaMessagingEvents,
+  parseMetaReceiptEvents,
+} from './webhook-events';
 
 describe('parseMetaMessagingEvents', () => {
   it('normalizes a Facebook Messenger text', () => {
@@ -88,5 +91,93 @@ describe('parseMetaMessagingEvents', () => {
       })
     ).toEqual([]);
     expect(parseMetaMessagingEvents({ object: 'unknown' })).toEqual([]);
+  });
+});
+
+describe('parseMetaReceiptEvents', () => {
+  it('normalizes Facebook delivery and read receipts', () => {
+    const events = parseMetaReceiptEvents({
+      object: 'page',
+      entry: [
+        {
+          id: 'page-1',
+          messaging: [
+            {
+              sender: { id: 'psid-1' },
+              timestamp: 1_721_390_405_000,
+              delivery: {
+                mids: ['mid-1', 'mid-2'],
+                watermark: 1_721_390_404_000,
+              },
+            },
+            {
+              sender: { id: 'psid-1' },
+              timestamp: 1_721_390_406_000,
+              read: { watermark: 1_721_390_405_000 },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        channel: 'facebook',
+        status: 'delivered',
+        messageIds: ['mid-1', 'mid-2'],
+        participantId: 'psid-1',
+      }),
+      expect.objectContaining({
+        channel: 'facebook',
+        status: 'read',
+        messageIds: [],
+        participantId: 'psid-1',
+      }),
+    ]);
+  });
+
+  it('normalizes both Instagram seen webhook shapes', () => {
+    const envelope = parseMetaReceiptEvents({
+      object: 'instagram',
+      entry: [
+        {
+          id: 'ig-1',
+          messaging: [
+            {
+              sender: { id: 'igsid-1' },
+              timestamp: 1_721_390_406_000,
+              read: { mid: 'ig-mid-1' },
+            },
+          ],
+        },
+      ],
+    });
+    const changes = parseMetaReceiptEvents({
+      object: 'instagram',
+      entry: [
+        {
+          id: 'ig-1',
+          time: 1_721_390_407_000,
+          changes: [
+            {
+              field: 'messaging_seen',
+              value: {
+                sender: { id: 'igsid-1' },
+                message_id: 'ig-mid-2',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(envelope[0]).toMatchObject({
+      status: 'read',
+      messageIds: ['ig-mid-1'],
+    });
+    expect(changes[0]).toMatchObject({
+      status: 'read',
+      messageIds: ['ig-mid-2'],
+    });
   });
 });

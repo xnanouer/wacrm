@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildMetaAuthorizationUrl,
+  sendSocialImage,
   sendSocialText,
   subscribePageWebhooks,
 } from './api';
@@ -37,9 +38,7 @@ describe('Meta social API', () => {
     );
 
     expect(facebook.searchParams.get('scope')).toContain('pages_messaging');
-    expect(facebook.searchParams.get('scope')).toContain(
-      'business_management'
-    );
+    expect(facebook.searchParams.get('scope')).toContain('business_management');
     expect(facebook.searchParams.get('scope')).not.toContain(
       'instagram_manage_messages'
     );
@@ -92,21 +91,67 @@ describe('Meta social API', () => {
   });
 
   it('subscribes pages only to supported Messenger message events', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ success: true }), { status: 200 })
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ success: true }), { status: 200 })
+      );
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
       subscribePageWebhooks({
         pageId: 'page-1',
         pageAccessToken: 'page-token',
+        channel: 'facebook',
       })
     ).resolves.toBe(true);
 
     const subscriptionUrl = new URL(String(fetchMock.mock.calls[0][0]));
     expect(subscriptionUrl.searchParams.get('subscribed_fields')).toBe(
+      'messages,message_deliveries,message_reads'
+    );
+
+    await subscribePageWebhooks({
+      pageId: 'page-1',
+      pageAccessToken: 'page-token',
+      channel: 'instagram',
+    });
+    const instagramSubscriptionUrl = new URL(
+      String(fetchMock.mock.calls[1][0])
+    );
+    expect(instagramSubscriptionUrl.searchParams.get('subscribed_fields')).toBe(
       'messages'
     );
+  });
+
+  it('sends image attachments using the channel-specific payload', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message_id: 'image-mid' }), {
+        status: 200,
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await sendSocialImage({
+      channel: 'facebook',
+      channelAccountId: 'page-1',
+      participantId: 'psid-1',
+      accessToken: 'page-token',
+      imageUrl: 'https://cdn.test/vehicle.jpg',
+    });
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      messaging_type: 'RESPONSE',
+      message: {
+        attachment: {
+          type: 'image',
+          payload: {
+            url: 'https://cdn.test/vehicle.jpg',
+            is_reusable: false,
+          },
+        },
+      },
+    });
   });
 });

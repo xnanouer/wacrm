@@ -139,12 +139,7 @@ export function VehicleSharePicker({
   }
 
   async function handleSend() {
-    if (
-      sending ||
-      channelMode !== 'whatsapp' ||
-      selectedIds.length === 0 ||
-      !intro.trim()
-    ) {
+    if (sending || selectedIds.length === 0 || !intro.trim()) {
       return;
     }
 
@@ -445,17 +440,8 @@ export function VehicleSharePicker({
               </Button>
               <Button
                 type="button"
-                disabled={
-                  sending ||
-                  channelMode !== 'whatsapp' ||
-                  selectedIds.length === 0 ||
-                  !intro.trim()
-                }
-                title={
-                  channelMode === 'social'
-                    ? 'El envío visual está disponible actualmente para WhatsApp.'
-                    : 'Enviar vehículos al cliente'
-                }
+                disabled={sending || selectedIds.length === 0 || !intro.trim()}
+                title="Enviar vehículos al cliente"
                 onClick={() => void handleSend()}
               >
                 {sending ? (
@@ -463,7 +449,11 @@ export function VehicleSharePicker({
                 ) : (
                   <Send className="size-4" />
                 )}
-                {sending ? 'Enviando…' : 'Enviar por WhatsApp'}
+                {sending
+                  ? 'Enviando…'
+                  : channelMode === 'whatsapp'
+                    ? 'Enviar por WhatsApp'
+                    : 'Enviar por Meta'}
               </Button>
             </>
           )}

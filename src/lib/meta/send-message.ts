@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { MetaApiError, sendSocialText } from '@/lib/meta/api';
+import { MetaApiError, sendSocialImage, sendSocialText } from '@/lib/meta/api';
+import { prepareOutboundMediaUrl } from '@/lib/storage/private-media-server';
 import { decrypt } from '@/lib/whatsapp/encryption';
 
 export class SocialSendError extends Error {
@@ -24,8 +25,8 @@ interface SocialConversation {
 }
 
 /**
- * Send a text reply through the Facebook Page or Instagram professional
- * account attached to an existing social conversation.
+ * Send a text or image reply through the Facebook Page or Instagram
+ * professional account attached to an existing social conversation.
  */
 export async function sendSocialMessageToConversation(
   db: SupabaseClient,
@@ -34,14 +35,21 @@ export async function sendSocialMessageToConversation(
     conversationId: string;
     messageType: string;
     contentText?: string | null;
+    mediaUrl?: string | null;
     replyToMessageId?: string | null;
     senderId?: string | null;
+    senderType?: 'agent' | 'bot';
   }
 ): Promise<{ messageId: string; metaMessageId: string }> {
   const text = input.contentText?.trim();
-  if (input.messageType !== 'text' || !text) {
+  const mediaUrl = input.mediaUrl?.trim();
+  if (
+    (input.messageType !== 'text' && input.messageType !== 'image') ||
+    (input.messageType === 'text' && !text) ||
+    (input.messageType === 'image' && !mediaUrl)
+  ) {
     throw new SocialSendError(
-      'Facebook e Instagram admiten solo respuestas de texto en esta versión.',
+      'Facebook e Instagram admiten respuestas de texto o imagen.',
       400
     );
   }
@@ -112,17 +120,104 @@ export async function sendSocialMessageToConversation(
     );
   }
 
+  const senderType = input.senderType ?? 'agent';
+  const senderId = senderType === 'agent' ? input.senderId || null : null;
+  const accessToken = decrypt(secret.access_token);
+
+  const persistMessage = async (message: {
+    metaMessageId: string;
+    contentType: 'text' | 'image';
+    contentText: string | null;
+    mediaUrl: string | null;
+    replyToMessageId?: string | null;
+  }): Promise<string> => {
+    const { data: saved, error: saveError } = await db
+      .from('messages')
+      .insert({
+        conversation_id: conversation.id,
+        sender_type: senderType,
+        sender_id: senderId,
+        content_type: message.contentType,
+        content_text: message.contentText,
+        media_url: message.mediaUrl,
+        message_id: message.metaMessageId,
+        status: 'sent',
+        reply_to_message_id: message.replyToMessageId || null,
+      })
+      .select('id')
+      .single();
+    if (saveError || !saved) {
+      console.error('[social send] message persistence failed:', saveError);
+      throw new SocialSendError(
+        'Meta envió el mensaje, pero no se pudo guardar en el CRM.',
+        500
+      );
+    }
+    return saved.id;
+  };
+
   let metaMessageId: string;
+  let messageId: string;
   try {
-    const result = await sendSocialText({
-      channel: conversation.channel,
-      channelAccountId: connection.external_account_id,
-      participantId: conversation.external_participant_id,
-      accessToken: decrypt(secret.access_token),
-      text,
-    });
-    metaMessageId = result.messageId;
+    if (input.messageType === 'text') {
+      const result = await sendSocialText({
+        channel: conversation.channel,
+        channelAccountId: connection.external_account_id,
+        participantId: conversation.external_participant_id,
+        accessToken,
+        text: text!,
+      });
+      metaMessageId = result.messageId;
+      messageId = await persistMessage({
+        metaMessageId,
+        contentType: 'text',
+        contentText: text!,
+        mediaUrl: null,
+        replyToMessageId: input.replyToMessageId,
+      });
+    } else {
+      // Meta's social attachment payload has no WhatsApp-style caption.
+      // Persist the caption as its own text message so the CRM mirrors the
+      // two messages the customer actually receives.
+      if (text) {
+        const captionResult = await sendSocialText({
+          channel: conversation.channel,
+          channelAccountId: connection.external_account_id,
+          participantId: conversation.external_participant_id,
+          accessToken,
+          text,
+        });
+        await persistMessage({
+          metaMessageId: captionResult.messageId,
+          contentType: 'text',
+          contentText: text,
+          mediaUrl: null,
+          replyToMessageId: input.replyToMessageId,
+        });
+      }
+
+      const deliveryUrl = await prepareOutboundMediaUrl(
+        db,
+        accountId,
+        mediaUrl!
+      );
+      const result = await sendSocialImage({
+        channel: conversation.channel,
+        channelAccountId: connection.external_account_id,
+        participantId: conversation.external_participant_id,
+        accessToken,
+        imageUrl: deliveryUrl,
+      });
+      metaMessageId = result.messageId;
+      messageId = await persistMessage({
+        metaMessageId,
+        contentType: 'image',
+        contentText: null,
+        mediaUrl: mediaUrl!,
+      });
+    }
   } catch (sendError) {
+    if (sendError instanceof SocialSendError) throw sendError;
     const detail =
       sendError instanceof MetaApiError
         ? sendError.message
@@ -130,33 +225,12 @@ export async function sendSocialMessageToConversation(
     throw new SocialSendError(`Error de Meta: ${detail}`, 502);
   }
 
-  const { data: message, error: messageError } = await db
-    .from('messages')
-    .insert({
-      conversation_id: conversation.id,
-      sender_type: 'agent',
-      sender_id: input.senderId || null,
-      content_type: 'text',
-      content_text: text,
-      message_id: metaMessageId,
-      status: 'sent',
-      reply_to_message_id: input.replyToMessageId || null,
-    })
-    .select('id')
-    .single();
-  if (messageError || !message) {
-    console.error('[social send] message persistence failed:', messageError);
-    throw new SocialSendError(
-      'Meta envió el mensaje, pero no se pudo guardar en el CRM.',
-      500
-    );
-  }
-
   const now = new Date().toISOString();
   const { error: updateError } = await db
     .from('conversations')
     .update({
-      last_message_text: text,
+      last_message_text:
+        text || (input.messageType === 'image' ? '[imagen]' : null),
       last_message_at: now,
       first_response_at: conversation.first_response_at ?? now,
       updated_at: now,
@@ -166,5 +240,5 @@ export async function sendSocialMessageToConversation(
     console.error('[social send] conversation update failed:', updateError);
   }
 
-  return { messageId: message.id, metaMessageId };
+  return { messageId, metaMessageId };
 }

@@ -1,11 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { fetchSocialParticipant } from '@/lib/meta/api';
 import {
   parseMetaMessagingEvents,
+  parseMetaReceiptEvents,
   type SocialInboundMessage,
+  type SocialMessageReceipt,
 } from './webhook-events';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 
@@ -20,10 +23,25 @@ interface ConnectionRow {
 }
 
 export async function processMetaWebhook(payload: unknown): Promise<void> {
+  const admin = supabaseAdmin();
+  const receipts = parseMetaReceiptEvents(payload);
+  for (const receipt of receipts) {
+    try {
+      await processReceiptEvent(admin, receipt);
+    } catch (error) {
+      console.error('[meta webhook] receipt event failed:', {
+        channel: receipt.channel,
+        account: receipt.channelAccountId,
+        status: receipt.status,
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  }
+
   const events = parseMetaMessagingEvents(payload);
   for (const event of events) {
     try {
-      await processInboundEvent(supabaseAdmin(), event);
+      await processInboundEvent(admin, event);
     } catch (error) {
       console.error('[meta webhook] inbound event failed:', {
         channel: event.channel,
@@ -32,6 +50,83 @@ export async function processMetaWebhook(payload: unknown): Promise<void> {
         error: error instanceof Error ? error.message : error,
       });
     }
+  }
+}
+
+function nextSocialStatus(
+  current: string,
+  incoming: SocialMessageReceipt['status']
+): SocialMessageReceipt['status'] | null {
+  if (current === 'failed' || current === 'read') return null;
+  if (incoming === 'read') return 'read';
+  return current === 'sending' || current === 'sent' ? 'delivered' : null;
+}
+
+async function processReceiptEvent(
+  admin: SupabaseClient,
+  receipt: SocialMessageReceipt
+): Promise<void> {
+  const { data: connection } = await admin
+    .from('channel_connections')
+    .select('id, account_id')
+    .eq('channel', receipt.channel)
+    .eq('external_account_id', receipt.channelAccountId)
+    .eq('status', 'connected')
+    .maybeSingle();
+  if (!connection || !receipt.participantId) return;
+
+  const { data: conversation } = await admin
+    .from('conversations')
+    .select('id')
+    .eq('account_id', connection.account_id)
+    .eq('channel_connection_id', connection.id)
+    .eq('external_participant_id', receipt.participantId)
+    .maybeSingle();
+  if (!conversation) return;
+
+  let query = admin
+    .from('messages')
+    .select('id, message_id, status')
+    .eq('conversation_id', conversation.id)
+    .in('sender_type', ['agent', 'bot']);
+  if (receipt.messageIds.length > 0) {
+    query = query.in('message_id', receipt.messageIds);
+  } else if (receipt.watermark) {
+    query = query.lte('created_at', receipt.watermark);
+  } else {
+    return;
+  }
+
+  const { data: messages, error } = await query;
+  if (error)
+    throw new Error(`No se pudieron leer los estados: ${error.message}`);
+
+  for (const message of messages ?? []) {
+    const nextStatus = nextSocialStatus(message.status, receipt.status);
+    if (!nextStatus) continue;
+    const { error: updateError } = await admin
+      .from('messages')
+      .update({ status: nextStatus })
+      .eq('id', message.id)
+      .eq('status', message.status);
+    if (updateError) {
+      console.error(
+        '[meta webhook] message status update failed:',
+        updateError
+      );
+      continue;
+    }
+    await dispatchWebhookEvent(
+      admin,
+      connection.account_id,
+      'message.status_updated',
+      {
+        conversation_id: conversation.id,
+        meta_message_id: message.message_id,
+        channel: receipt.channel,
+        status: nextStatus,
+      }
+    );
   }
 }
 
@@ -147,6 +242,25 @@ async function processInboundEvent(
       text: event.text,
     }
   );
+
+  let configOwnerUserId = typedConnection.created_by_user_id;
+  if (!configOwnerUserId) {
+    const { data: account } = await admin
+      .from('accounts')
+      .select('owner_user_id')
+      .eq('id', typedConnection.account_id)
+      .maybeSingle();
+    configOwnerUserId = account?.owner_user_id ?? null;
+  }
+  if (configOwnerUserId) {
+    await dispatchInboundToAiReply({
+      accountId: typedConnection.account_id,
+      conversationId: conversation.id,
+      contactId: identity.contactId,
+      configOwnerUserId,
+      sourceMessageExternalId: event.messageId,
+    });
+  }
 }
 
 async function findOrCreateIdentity(

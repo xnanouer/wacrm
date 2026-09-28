@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   loadCatalogCandidatesByIds: vi.fn(),
   sendCatalogCandidates: vi.fn(),
   sendMessageToConversation: vi.fn(),
+  sendSocialMessageToConversation: vi.fn(),
   reserveAiPoints: vi.fn(),
   finalizeAiPoints: vi.fn(),
   releaseAiPointsQuietly: vi.fn(),
@@ -45,6 +46,9 @@ vi.mock('./catalog', () => ({
 }));
 vi.mock('@/lib/whatsapp/send-message', () => ({
   sendMessageToConversation: h.sendMessageToConversation,
+}));
+vi.mock('@/lib/meta/send-message', () => ({
+  sendSocialMessageToConversation: h.sendSocialMessageToConversation,
 }));
 vi.mock('./points/service', () => ({
   reserveAiPoints: h.reserveAiPoints,
@@ -181,6 +185,7 @@ beforeEach(() => {
     ai_state: 'idle',
     whatsapp_config_id: 'wa-config-1',
     channel_connection_id: null,
+    channel: 'whatsapp',
   };
   h.state.autoResponders = [];
   h.state.claim = true;
@@ -222,6 +227,10 @@ beforeEach(() => {
     messageId: 'message-out-1',
     whatsappMessageId: 'm1',
   });
+  h.sendSocialMessageToConversation.mockResolvedValue({
+    messageId: 'message-social-out-1',
+    metaMessageId: 'mid-social-1',
+  });
   h.reserveAiPoints.mockResolvedValue({
     operationId: 'operation-1',
     points: 1,
@@ -259,6 +268,31 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       'operation-1',
       expect.any(Object)
     );
+  });
+
+  it('routes an automatic reply through the connected social channel', async () => {
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: false,
+      ai_reply_count: 0,
+      ai_state: 'idle',
+      whatsapp_config_id: null,
+      channel_connection_id: 'social-connection-1',
+      channel: 'instagram',
+    };
+
+    await dispatchInboundToAiReply(ARGS);
+
+    expect(h.sendSocialMessageToConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      expect.objectContaining({
+        conversationId: 'conv-1',
+        contentText: 'Hello!',
+        senderType: 'bot',
+      })
+    );
+    expect(h.sendMessageToConversation).not.toHaveBeenCalled();
   });
 
   it('keeps replying with an unlimited configuration', async () => {

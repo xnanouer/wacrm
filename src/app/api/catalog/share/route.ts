@@ -15,6 +15,10 @@ import {
   SendMessageError,
   sendMessageToConversation,
 } from '@/lib/whatsapp/send-message';
+import {
+  SocialSendError,
+  sendSocialMessageToConversation,
+} from '@/lib/meta/send-message';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -97,7 +101,9 @@ export async function POST(request: Request) {
     // catalog item into a ticket they are already allowed to operate.
     const { data: conversation, error: conversationError } = await ctx.supabase
       .from('conversations')
-      .select('id, contact_id, whatsapp_config_id, channel')
+      .select(
+        'id, contact_id, whatsapp_config_id, channel_connection_id, channel'
+      )
       .eq('id', conversationId)
       .eq('account_id', ctx.accountId)
       .maybeSingle();
@@ -107,18 +113,26 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
-    if (conversation.channel !== 'whatsapp') {
+    if (
+      conversation.channel !== 'whatsapp' &&
+      conversation.channel !== 'facebook' &&
+      conversation.channel !== 'instagram'
+    ) {
       return NextResponse.json(
         {
-          error:
-            'El envío visual del catálogo está disponible actualmente para WhatsApp.',
+          error: 'Este canal no admite el envío visual del catálogo.',
         },
         { status: 400 }
       );
     }
-    if (!conversation.whatsapp_config_id) {
+    if (
+      (conversation.channel === 'whatsapp' &&
+        !conversation.whatsapp_config_id) ||
+      (conversation.channel !== 'whatsapp' &&
+        !conversation.channel_connection_id)
+    ) {
       return NextResponse.json(
-        { error: 'Esta conversación no tiene una conexión de WhatsApp.' },
+        { error: 'Esta conversación no tiene una conexión activa.' },
         { status: 409 }
       );
     }
@@ -154,21 +168,31 @@ export async function POST(request: Request) {
 
     const intro = recentIntro
       ? { messageId: recentIntro.id }
-      : await sendMessageToConversation(db, ctx.accountId, {
-          conversationId,
-          messageType: 'text',
-          contentText: introductionText,
-          senderType: 'agent',
-          senderId: ctx.userId,
-          pauseFlows: true,
-        });
+      : conversation.channel === 'whatsapp'
+        ? await sendMessageToConversation(db, ctx.accountId, {
+            conversationId,
+            messageType: 'text',
+            contentText: introductionText,
+            senderType: 'agent',
+            senderId: ctx.userId,
+            pauseFlows: true,
+          })
+        : await sendSocialMessageToConversation(db, ctx.accountId, {
+            conversationId,
+            messageType: 'text',
+            contentText: introductionText,
+            senderType: 'agent',
+            senderId: ctx.userId,
+          });
     const result = await sendCatalogCandidates({
       db,
       accountId: ctx.accountId,
       conversationId,
       contactId: conversation.contact_id,
       actorUserId: ctx.userId,
+      channel: conversation.channel,
       whatsappConfigId: conversation.whatsapp_config_id,
+      channelConnectionId: conversation.channel_connection_id,
       introductionText,
       introMessageId: intro.messageId,
       candidates,
@@ -180,7 +204,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'El mensaje introductorio se envió, pero WhatsApp no pudo enviar las fichas seleccionadas.',
+            'El mensaje introductorio se envió, pero no se pudieron enviar las fichas seleccionadas.',
           ...result,
         },
         { status: 502 }
@@ -190,6 +214,12 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof SendMessageError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status }
+      );
+    }
+    if (error instanceof SocialSendError) {
       return NextResponse.json(
         { error: error.message },
         { status: error.status }
