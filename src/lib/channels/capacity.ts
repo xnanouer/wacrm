@@ -34,7 +34,8 @@ export async function getAccountChannelCapacity(
       admin
         .from('whatsapp_config')
         .select('id', { count: 'exact', head: true })
-        .eq('account_id', accountId),
+        .eq('account_id', accountId)
+        .is('removed_at', null),
       admin
         .from('channel_connections')
         .select('id', { count: 'exact', head: true })

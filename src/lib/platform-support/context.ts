@@ -51,7 +51,8 @@ export async function buildSupportAccountContext(
       .select(
         'provider, status, connection_name, display_phone, last_registration_error, updated_at'
       )
-      .eq('account_id', ctx.accountId),
+      .eq('account_id', ctx.accountId)
+      .is('removed_at', null),
     admin
       .from('channel_connections')
       .select('channel, display_name, status, updated_at')

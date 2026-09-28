@@ -172,6 +172,7 @@ export async function getPlatformAccountDetail(
         'id, provider, status, connected_at, connection_name, display_phone'
       )
       .eq('account_id', accountId)
+      .is('removed_at', null)
       .order('is_default', { ascending: false })
       .order('created_at', { ascending: true }),
     admin

@@ -80,6 +80,7 @@ export function TicketAnalyticsPanel() {
               .select(
                 'id, connection_name, display_name, display_phone, phone_number_id'
               )
+              .is('removed_at', null)
               .order('created_at'),
           ]);
 

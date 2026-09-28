@@ -5,6 +5,7 @@ import {
   requireRole,
   toErrorResponse,
 } from '@/lib/auth/account';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -32,6 +33,7 @@ async function findConnection(
     .eq('id', connectionId)
     .eq('account_id', ctx.accountId)
     .eq('provider', 'whatsapp_web')
+    .is('removed_at', null)
     .maybeSingle();
   return data;
 }
@@ -138,9 +140,34 @@ export async function PATCH(
     }
 
     const body = (await request.json().catch(() => null)) as {
+      action?: unknown;
       name?: unknown;
       departmentId?: unknown;
     } | null;
+    if (body?.action === 'disconnect') {
+      try {
+        await callWhatsAppWebService<WhatsAppWebSessionStatus>(
+          ctx.accountId,
+          connection.id,
+          '/logout',
+          { method: 'POST', body: '{}' }
+        );
+      } catch (error) {
+        if (!isWhatsAppWebServiceOffline(error)) return serviceError(error);
+      }
+
+      const { error } = await ctx.supabase
+        .from('whatsapp_config')
+        .update({
+          status: 'disconnected',
+          connected_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', connection.id)
+        .eq('account_id', ctx.accountId);
+      if (error) throw error;
+      return NextResponse.json({ success: true });
+    }
     const updates: {
       connection_name?: string;
       default_department_id?: string | null;
@@ -222,7 +249,7 @@ export async function DELETE(
   try {
     const ctx = await requireRole('admin');
     const limit = checkRateLimit(
-      `whatsapp-web-disconnect:${ctx.userId}`,
+      `whatsapp-web-remove:${ctx.userId}`,
       RATE_LIMITS.adminAction
     );
     if (!limit.success) return rateLimitResponse(limit);
@@ -243,20 +270,48 @@ export async function DELETE(
         { method: 'POST', body: '{}' }
       );
     } catch (error) {
-      if (!isWhatsAppWebServiceOffline(error)) return serviceError(error);
+      console.warn(
+        '[whatsapp web remove] worker logout failed; removing slot anyway:',
+        error instanceof Error ? error.message : error
+      );
     }
 
-    const { error } = await ctx.supabase
+    const admin = supabaseAdmin();
+    const { error } = await admin
       .from('whatsapp_config')
       .update({
         status: 'disconnected',
         connected_at: null,
+        is_default: false,
+        removed_at: new Date().toISOString(),
+        removed_by_user_id: ctx.userId,
         updated_at: new Date().toISOString(),
       })
       .eq('id', connection.id)
       .eq('account_id', ctx.accountId);
     if (error) throw error;
-    return NextResponse.json({ success: true });
+
+    if (connection.is_default) {
+      const { data: replacement, error: replacementError } = await admin
+        .from('whatsapp_config')
+        .select('id')
+        .eq('account_id', ctx.accountId)
+        .is('removed_at', null)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (replacementError) throw replacementError;
+      if (replacement) {
+        const { error: defaultError } = await admin
+          .from('whatsapp_config')
+          .update({ is_default: true })
+          .eq('id', replacement.id)
+          .eq('account_id', ctx.accountId);
+        if (defaultError) throw defaultError;
+      }
+    }
+
+    return NextResponse.json({ success: true, removed: true });
   } catch (error) {
     return toErrorResponse(error);
   }

@@ -48,6 +48,7 @@ export async function GET() {
           'id, connection_name, display_name, display_phone, provider, status'
         )
         .eq('account_id', accountId)
+        .is('removed_at', null)
         .order('created_at', { ascending: true }),
       supabase
         .from('channel_connections')
@@ -308,6 +309,7 @@ export async function POST(request: Request) {
             .from('whatsapp_config')
             .select('id')
             .eq('account_id', accountId)
+            .is('removed_at', null)
             .in('id', whatsappIds)
         : Promise.resolve({ data: [], error: null }),
       socialIds.length

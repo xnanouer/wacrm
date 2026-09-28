@@ -13,6 +13,7 @@ import {
   Save,
   ShieldAlert,
   Smartphone,
+  Trash2,
   Unplug,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -252,7 +253,11 @@ export function WhatsAppQrConfig() {
     try {
       const response = await fetch(
         `/api/whatsapp/web/session/${connection.id}`,
-        { method: 'DELETE' }
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'disconnect' }),
+        }
       );
       const data = await readApiResponse<{ error?: string }>(response);
       if (!response.ok) {
@@ -263,6 +268,46 @@ export function WhatsAppQrConfig() {
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : 'No se pudo desvincular.'
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function removeConnection(connection: Connection) {
+    if (
+      !window.confirm(
+        `¿Eliminar “${connection.connection_name}” de Nexora? La sesión se cerrará y el cupo quedará libre. Los chats anteriores se conservarán.`
+      )
+    ) {
+      return;
+    }
+    setBusyId(connection.id);
+    try {
+      const response = await fetch(
+        `/api/whatsapp/web/session/${connection.id}`,
+        { method: 'DELETE' }
+      );
+      const data = await readApiResponse<{ error?: string }>(response);
+      if (!response.ok) {
+        throw new Error(data.error || 'No se pudo eliminar la conexión.');
+      }
+      setConnections((current) =>
+        current.filter((item) => item.id !== connection.id)
+      );
+      setUsage((current) => ({
+        ...current,
+        current: Math.max(0, current.current - 1),
+        remaining: current.remaining === null ? null : current.remaining + 1,
+      }));
+      setEditingId((current) => (current === connection.id ? null : current));
+      toast.success(`${connection.connection_name} fue eliminado.`);
+      await refresh(true);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo eliminar la conexión.'
       );
     } finally {
       setBusyId(null);
@@ -570,6 +615,19 @@ export function WhatsAppQrConfig() {
                     <Button variant="ghost" onClick={() => void refresh()}>
                       <RefreshCw className="size-4" />
                       Actualizar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => void removeConnection(connection)}
+                      disabled={!canEditSettings || isBusy}
+                    >
+                      {isBusy ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-4" />
+                      )}
+                      Eliminar
                     </Button>
                   </div>
                 </CardContent>

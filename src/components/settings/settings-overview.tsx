@@ -115,6 +115,7 @@ export function SettingsOverview({
           .from('whatsapp_config')
           .select('phone_number_id, provider')
           .eq('account_id', acctId)
+          .is('removed_at', null)
           .order('is_default', { ascending: false })
           .order('created_at', { ascending: true })
           .limit(1)

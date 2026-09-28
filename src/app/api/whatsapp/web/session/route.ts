@@ -61,6 +61,7 @@ export async function GET() {
       )
       .eq('account_id', ctx.accountId)
       .eq('provider', 'whatsapp_web')
+      .is('removed_at', null)
       .order('created_at');
     if (error) throw error;
 
@@ -193,7 +194,8 @@ export async function POST(request: Request) {
     const { count: existingCount } = await ctx.supabase
       .from('whatsapp_config')
       .select('id', { count: 'exact', head: true })
-      .eq('account_id', ctx.accountId);
+      .eq('account_id', ctx.accountId)
+      .is('removed_at', null);
     const { data: connection, error: insertError } = await ctx.supabase
       .from('whatsapp_config')
       .insert({
