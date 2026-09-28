@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getAiUsageSummary } from '@/lib/ai/points/usage';
+import { getAccountChannelCapacity } from '@/lib/channels/capacity';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { getPlatformCatalogCapacity } from '@/lib/platform/accounts';
 import {
@@ -204,6 +205,74 @@ export async function PATCH(
         success: true,
         message: `La empresa ahora tiene ${capacity.totalLimit.toLocaleString('es-CL')} cupos de catálogo.`,
         catalogCapacity: capacity,
+      });
+    }
+
+    if (body.action === 'set_extra_channels') {
+      const extraChannels = Number(body.extra_channels);
+      if (
+        !Number.isSafeInteger(extraChannels) ||
+        extraChannels < 0 ||
+        extraChannels > 10_000
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Las conexiones adicionales deben ser un número entero entre 0 y 10.000.',
+          },
+          { status: 400 }
+        );
+      }
+
+      const previous = await getAccountChannelCapacity(id);
+      const { error: entitlementError } = await admin
+        .from('account_channel_entitlements')
+        .upsert(
+          {
+            account_id: id,
+            extra_channels: extraChannels,
+            source: 'manual',
+            updated_by_user_id: actor.userId,
+          },
+          { onConflict: 'account_id' }
+        );
+      if (
+        entitlementError?.message.includes(
+          'channel_capacity_reduction_conflict'
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'No puedes reducir los cupos por debajo de las conexiones que la empresa ya utiliza.',
+          },
+          { status: 409 }
+        );
+      }
+      if (entitlementError) throw entitlementError;
+
+      const capacity = await getAccountChannelCapacity(id);
+      const { error: auditError } = await admin
+        .from('platform_audit_logs')
+        .insert({
+          actor_user_id: actor.userId,
+          account_id: id,
+          action: 'account.channel_capacity_adjusted',
+          previous_data: previous,
+          next_data: capacity,
+          reason,
+        });
+      if (auditError) {
+        console.error('[platform/benefits] audit insert failed:', auditError);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message:
+          capacity.totalLimit === null
+            ? 'La empresa mantiene conexiones ilimitadas.'
+            : `La empresa ahora tiene ${capacity.totalLimit.toLocaleString('es-CL')} cupos de conexión.`,
+        channelCapacity: capacity,
       });
     }
 

@@ -84,7 +84,7 @@ export function PlatformCompanies({
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const canManage = platformRole !== 'platform_support';
+  const canManage = platformRole === 'platform_owner';
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return accounts;

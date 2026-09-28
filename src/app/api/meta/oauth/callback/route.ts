@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { requireRole } from '@/lib/auth/account';
+import { getAccountChannelCapacity } from '@/lib/channels/capacity';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { encrypt } from '@/lib/whatsapp/encryption';
 import {
@@ -42,56 +43,29 @@ async function accountHasChannelCapacity(input: {
   externalAccountIds: string[];
 }): Promise<boolean> {
   const uniqueExternalIds = [...new Set(input.externalAccountIds)];
-  const [accountResult, whatsappResult, socialResult, existingResult] =
-    await Promise.all([
-      input.admin
-        .from('accounts')
-        .select('plan_code')
-        .eq('id', input.accountId)
-        .single(),
-      input.admin
-        .from('whatsapp_config')
-        .select('id', { count: 'exact', head: true })
-        .eq('account_id', input.accountId),
-      input.admin
-        .from('channel_connections')
-        .select('id', { count: 'exact', head: true })
-        .eq('account_id', input.accountId)
-        .neq('status', 'disconnected'),
-      uniqueExternalIds.length
-        ? input.admin
-            .from('channel_connections')
-            .select('external_account_id')
-            .eq('account_id', input.accountId)
-            .eq('channel', input.channel)
-            .neq('status', 'disconnected')
-            .in('external_account_id', uniqueExternalIds)
-        : Promise.resolve({ data: [], error: null }),
-    ]);
+  const [capacity, existingResult] = await Promise.all([
+    getAccountChannelCapacity(input.accountId),
+    uniqueExternalIds.length
+      ? input.admin
+          .from('channel_connections')
+          .select('external_account_id')
+          .eq('account_id', input.accountId)
+          .eq('channel', input.channel)
+          .neq('status', 'disconnected')
+          .in('external_account_id', uniqueExternalIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
-  if (accountResult.error || !accountResult.data?.plan_code) {
-    throw new Error('No se pudo consultar el plan de la empresa');
-  }
-  if (whatsappResult.error || socialResult.error || existingResult.error) {
+  if (existingResult.error) {
     throw new Error('No se pudo calcular el uso de canales');
   }
-
-  const { data: plan, error: planError } = await input.admin
-    .from('saas_plans')
-    .select('max_channels')
-    .eq('code', accountResult.data.plan_code)
-    .single();
-  if (planError || !plan) {
-    throw new Error('No se pudo consultar el límite de canales');
-  }
-  if (plan.max_channels === null) return true;
+  if (capacity.totalLimit === null) return true;
 
   const alreadyActive = new Set(
     (existingResult.data ?? []).map((row) => row.external_account_id)
   ).size;
   const requestedNew = Math.max(0, uniqueExternalIds.length - alreadyActive);
-  const current = (whatsappResult.count ?? 0) + (socialResult.count ?? 0);
-  return current + requestedNew <= Number(plan.max_channels);
+  return capacity.usedChannels + requestedNew <= capacity.totalLimit;
 }
 
 export async function GET(request: Request) {

@@ -44,7 +44,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const actor = await requirePlatformRole('platform_admin');
+    const actor = await requirePlatformRole('platform_owner');
     const { id } = await context.params;
     if (!UUID_PATTERN.test(id)) {
       return NextResponse.json(

@@ -79,6 +79,14 @@ export interface PlatformCatalogCapacity {
   remainingUnits: number;
 }
 
+export interface PlatformChannelCapacity {
+  baseLimit: number | null;
+  extraChannels: number;
+  totalLimit: number | null;
+  usedChannels: number;
+  remainingChannels: number | null;
+}
+
 export interface PlatformAccountDetail {
   overview: PlatformAccountOverview;
   members: PlatformMemberSummary[];
@@ -87,4 +95,5 @@ export interface PlatformAccountDetail {
   audit: PlatformAuditSummary[];
   aiUsage: import('@/lib/ai/points/types').AiUsageSummary;
   catalogCapacity: PlatformCatalogCapacity;
+  channelCapacity: PlatformChannelCapacity;
 }

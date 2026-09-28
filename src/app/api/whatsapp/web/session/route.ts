@@ -5,6 +5,7 @@ import {
   requireRole,
   toErrorResponse,
 } from '@/lib/auth/account';
+import { getAccountChannelCapacity } from '@/lib/channels/capacity';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -42,38 +43,11 @@ function offlineStatus(error: unknown): WhatsAppWebSessionStatus & {
 async function accountChannelUsage(
   ctx: Awaited<ReturnType<typeof getCurrentAccount>>
 ) {
-  const [
-    { data: plan, error: planError },
-    { count: whatsappCount, error: whatsappError },
-    { count: socialCount, error: socialError },
-  ] = await Promise.all([
-    ctx.supabase
-      .from('saas_plans')
-      .select('max_channels')
-      .eq('code', ctx.account.plan_code)
-      .maybeSingle(),
-    ctx.supabase
-      .from('whatsapp_config')
-      .select('id', { count: 'exact', head: true })
-      .eq('account_id', ctx.accountId),
-    ctx.supabase
-      .from('channel_connections')
-      .select('id', { count: 'exact', head: true })
-      .eq('account_id', ctx.accountId),
-  ]);
-  if (planError || whatsappError || socialError || !plan) {
-    throw (
-      planError ?? whatsappError ?? socialError ?? new Error('Plan not found')
-    );
-  }
-  const current = (whatsappCount ?? 0) + (socialCount ?? 0);
+  const capacity = await getAccountChannelCapacity(ctx.accountId);
   return {
-    current,
-    max: plan.max_channels as number | null,
-    remaining:
-      plan.max_channels === null
-        ? null
-        : Math.max(0, Number(plan.max_channels) - current),
+    current: capacity.usedChannels,
+    max: capacity.totalLimit,
+    remaining: capacity.remainingChannels,
   };
 }
 

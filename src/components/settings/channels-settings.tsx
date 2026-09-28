@@ -13,6 +13,7 @@ import {
   Loader2,
   MessageCircle,
   RefreshCw,
+  Trash2,
   Unplug,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -139,6 +140,7 @@ export function ChannelsSettings() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -209,7 +211,9 @@ export function ChannelsSettings() {
     setDisconnecting(connection.id);
     try {
       const response = await fetch(`/api/meta/connections/${connection.id}`, {
-        method: 'DELETE',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect' }),
       });
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) {
@@ -221,6 +225,32 @@ export function ChannelsSettings() {
       toast.error(error instanceof Error ? error.message : 'Error inesperado');
     } finally {
       setDisconnecting(null);
+    }
+  };
+
+  const remove = async (connection: MetaConnection) => {
+    if (
+      !window.confirm(
+        `¿Eliminar ${connection.display_name} de Nexora? El historial de conversaciones se conservará, pero tendrás que autorizar la cuenta nuevamente para volver a usarla.`
+      )
+    ) {
+      return;
+    }
+    setRemoving(connection.id);
+    try {
+      const response = await fetch(`/api/meta/connections/${connection.id}`, {
+        method: 'DELETE',
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || 'No se pudo eliminar la conexión');
+      }
+      toast.success(`${connection.display_name} fue eliminado de Nexora`);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Error inesperado');
+    } finally {
+      setRemoving(null);
     }
   };
 
@@ -410,8 +440,12 @@ export function ChannelsSettings() {
                   key={connection.id}
                   connection={connection}
                   canEdit={data.canEdit}
-                  busy={disconnecting === connection.id}
+                  busy={
+                    disconnecting === connection.id || removing === connection.id
+                  }
+                  removing={removing === connection.id}
                   onDisconnect={disconnect}
+                  onRemove={remove}
                 />
               ))}
             </div>
@@ -567,12 +601,16 @@ function ConnectionCard({
   connection,
   canEdit,
   busy,
+  removing,
   onDisconnect,
+  onRemove,
 }: {
   connection: MetaConnection;
   canEdit: boolean;
   busy: boolean;
+  removing: boolean;
   onDisconnect: (connection: MetaConnection) => Promise<void>;
+  onRemove: (connection: MetaConnection) => Promise<void>;
 }) {
   const Icon = connection.channel === 'instagram' ? Camera : MessageCircle;
   const connected = connection.status === 'connected';
@@ -628,21 +666,39 @@ function ConnectionCard({
           </p>
         </div>
 
-        {canEdit && connection.status !== 'disconnected' ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-destructive mt-4 self-start"
-            disabled={busy}
-            onClick={() => void onDisconnect(connection)}
-          >
-            {busy ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Unplug className="size-4" />
-            )}
-            Desconectar
-          </Button>
+        {canEdit ? (
+          <div className="mt-4 flex flex-wrap gap-1">
+            {connection.status !== 'disconnected' ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                disabled={busy}
+                onClick={() => void onDisconnect(connection)}
+              >
+                {busy && !removing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Unplug className="size-4" />
+                )}
+                Desconectar
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              disabled={busy}
+              onClick={() => void onRemove(connection)}
+            >
+              {removing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              Eliminar
+            </Button>
+          </div>
         ) : null}
       </CardContent>
     </Card>

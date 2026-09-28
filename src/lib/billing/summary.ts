@@ -4,6 +4,7 @@ import { getAiUsageSummary } from '@/lib/ai/points/usage';
 import type { AiUsageSummary } from '@/lib/ai/points/types';
 import type { AccountContext } from '@/lib/auth/account';
 import type { SubscriptionStatus } from '@/lib/billing/access';
+import { getAccountChannelCapacity } from '@/lib/channels/capacity';
 
 export interface AccountPlanSummary {
   accountName: string;
@@ -78,48 +79,26 @@ async function safelyLoadCatalogUsage(
 export async function getAccountPlanSummary(
   ctx: AccountContext
 ): Promise<AccountPlanSummary> {
-  const [
-    planResult,
-    usersResult,
-    whatsappResult,
-    socialResult,
-    aiUsage,
-    catalog,
-  ] = await Promise.all([
-    ctx.supabase
-      .from('saas_plans')
-      .select('code, name, monthly_price, currency, max_users, max_channels')
-      .eq('code', ctx.account.plan_code)
-      .maybeSingle(),
-    ctx.supabase
-      .from('profiles')
-      .select('user_id', { count: 'exact', head: true })
-      .eq('account_id', ctx.accountId),
-    ctx.supabase
-      .from('whatsapp_config')
-      .select('id', { count: 'exact', head: true })
-      .eq('account_id', ctx.accountId),
-    ctx.supabase
-      .from('channel_connections')
-      .select('id, status')
-      .eq('account_id', ctx.accountId),
-    safelyLoadAiUsage(ctx.accountId),
-    safelyLoadCatalogUsage(ctx),
-  ]);
+  const [planResult, usersResult, channelCapacity, aiUsage, catalog] =
+    await Promise.all([
+      ctx.supabase
+        .from('saas_plans')
+        .select('code, name, monthly_price, currency, max_users, max_channels')
+        .eq('code', ctx.account.plan_code)
+        .maybeSingle(),
+      ctx.supabase
+        .from('profiles')
+        .select('user_id', { count: 'exact', head: true })
+        .eq('account_id', ctx.accountId),
+      getAccountChannelCapacity(ctx.accountId),
+      safelyLoadAiUsage(ctx.accountId),
+      safelyLoadCatalogUsage(ctx),
+    ]);
 
-  const firstError = [
-    planResult.error,
-    usersResult.error,
-    whatsappResult.error,
-    socialResult.error,
-  ].find(Boolean);
+  const firstError = [planResult.error, usersResult.error].find(Boolean);
   if (firstError) throw firstError;
 
   const plan = planResult.data;
-  const activeSocialConnections = (socialResult.data ?? []).filter(
-    (connection) => connection.status !== 'disconnected'
-  ).length;
-
   return {
     accountName: ctx.account.name,
     planCode: ctx.account.plan_code,
@@ -140,11 +119,8 @@ export async function getAccountPlanSummary(
           : numberValue(plan.max_users),
     },
     connections: {
-      used: (whatsappResult.count ?? 0) + activeSocialConnections,
-      limit:
-        plan?.max_channels === null || plan?.max_channels === undefined
-          ? null
-          : numberValue(plan.max_channels),
+      used: channelCapacity.usedChannels,
+      limit: channelCapacity.totalLimit,
     },
     catalog,
     aiUsage,

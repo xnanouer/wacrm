@@ -30,7 +30,13 @@ export async function GET(request: Request) {
     }
     const origin = resolvePublicOrigin(request);
     return NextResponse.json({
-      connections: data ?? [],
+      connections: (data ?? []).filter((connection) => {
+        const metadata =
+          connection.metadata && typeof connection.metadata === 'object'
+            ? (connection.metadata as Record<string, unknown>)
+            : {};
+        return typeof metadata.removed_at !== 'string';
+      }),
       configuration: {
         configured: isMetaConfigured(),
         webhookTokenConfigured: Boolean(

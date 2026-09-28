@@ -141,6 +141,7 @@ export default async function PlatformCompanyPage(props: {
               accountId={overview.id}
               initialAiUsage={detail.aiUsage}
               initialCatalogCapacity={detail.catalogCapacity}
+              initialChannelCapacity={detail.channelCapacity}
             />
             <PlatformCompanyAiCard
               accountId={overview.id}

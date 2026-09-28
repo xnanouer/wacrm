@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { getAiUsageSummary } from '@/lib/ai/points/usage';
+import { getAccountChannelCapacity } from '@/lib/channels/capacity';
 import type {
   PlatformAccountDetail,
   PlatformAccountOverview,
@@ -148,6 +149,7 @@ export async function getPlatformAccountDetail(
     auditResult,
     aiUsage,
     catalogCapacity,
+    channelCapacity,
   ] = await Promise.all([
     admin
       .from('profiles')
@@ -161,7 +163,7 @@ export async function getPlatformAccountDetail(
       .order('position', { ascending: true }),
     admin
       .from('channel_connections')
-      .select('id, channel, display_name, status, connected_at')
+      .select('id, channel, display_name, status, connected_at, metadata')
       .eq('account_id', accountId)
       .order('created_at', { ascending: true }),
     admin
@@ -180,6 +182,7 @@ export async function getPlatformAccountDetail(
       .limit(25),
     getAiUsageSummary(accountId),
     getPlatformCatalogCapacity(accountId),
+    getAccountChannelCapacity(accountId),
   ]);
 
   const firstError = [
@@ -191,13 +194,21 @@ export async function getPlatformAccountDetail(
   ].find(Boolean);
   if (firstError) throw firstError;
 
-  const channels = (socialResult.data ?? []).map((channel) => ({
-    id: channel.id,
-    channel: channel.channel,
-    displayName: channel.display_name,
-    status: channel.status,
-    connectedAt: channel.connected_at,
-  }));
+  const channels = (socialResult.data ?? [])
+    .filter((channel) => {
+      const metadata =
+        channel.metadata && typeof channel.metadata === 'object'
+          ? (channel.metadata as Record<string, unknown>)
+          : {};
+      return typeof metadata.removed_at !== 'string';
+    })
+    .map((channel) => ({
+      id: channel.id,
+      channel: channel.channel,
+      displayName: channel.display_name,
+      status: channel.status,
+      connectedAt: channel.connected_at,
+    }));
   for (const whatsapp of [...(whatsappResult.data ?? [])].reverse()) {
     channels.unshift({
       id: whatsapp.id,
@@ -237,5 +248,6 @@ export async function getPlatformAccountDetail(
     })),
     aiUsage,
     catalogCapacity,
+    channelCapacity,
   };
 }
