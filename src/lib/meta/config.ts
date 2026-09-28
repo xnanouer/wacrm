@@ -1,6 +1,7 @@
 const DEFAULT_GRAPH_VERSION = 'v24.0';
 
 export const META_OAUTH_SCOPES = [
+  'business_management',
   'pages_show_list',
   'pages_messaging',
   'pages_manage_metadata',
@@ -16,12 +17,14 @@ const META_CHANNEL_SCOPES: Record<
   readonly (typeof META_OAUTH_SCOPES)[number][]
 > = {
   facebook: [
+    'business_management',
     'pages_show_list',
     'pages_messaging',
     'pages_manage_metadata',
     'pages_read_engagement',
   ],
   instagram: [
+    'business_management',
     'pages_show_list',
     'pages_manage_metadata',
     'pages_read_engagement',

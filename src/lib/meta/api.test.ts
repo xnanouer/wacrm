@@ -37,11 +37,17 @@ describe('Meta social API', () => {
     );
 
     expect(facebook.searchParams.get('scope')).toContain('pages_messaging');
+    expect(facebook.searchParams.get('scope')).toContain(
+      'business_management'
+    );
     expect(facebook.searchParams.get('scope')).not.toContain(
       'instagram_manage_messages'
     );
     expect(instagram.searchParams.get('scope')).toContain(
       'instagram_manage_messages'
+    );
+    expect(instagram.searchParams.get('scope')).toContain(
+      'business_management'
     );
     expect(instagram.searchParams.get('scope')).not.toContain(
       'pages_messaging'

@@ -42,6 +42,7 @@ https://crm.tudominio.com/api/meta/oauth/callback
 
 Solicita estos permisos en el inicio de sesión:
 
+- `business_management`
 - `pages_show_list`
 - `pages_messaging`
 - `pages_manage_metadata`
@@ -80,6 +81,9 @@ Login for Business.
 
 - Facebook: el usuario que autoriza debe administrar la página y tener tarea de
   mensajería.
+- Si la página pertenece a un portafolio comercial de Meta, la configuración de
+  Facebook Login for Business debe incluir `business_management`; de lo
+  contrario, `/me/accounts` puede devolver una lista vacía.
 - Instagram: debe ser una cuenta Business o Creator vinculada a una página de
   Facebook autorizada.
 - La persona debe iniciar primero la conversación. Meta limita las respuestas
