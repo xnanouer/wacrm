@@ -15,6 +15,8 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  Trash2,
+  TriangleAlert,
   Users,
   Wifi,
 } from 'lucide-react';
@@ -83,6 +85,12 @@ export function PlatformCompanies({
   const [planCode, setPlanCode] = useState('trial');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<PlatformAccountOverview | null>(
+    null
+  );
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const canManage = platformRole === 'platform_owner';
   const filtered = useMemo(() => {
@@ -119,6 +127,13 @@ export function PlatformCompanies({
     setReason(account.suspensionReason ?? '');
   }
 
+  function openDeleteDialog(account: PlatformAccountOverview) {
+    setEditing(null);
+    setDeleting(account);
+    setDeleteConfirmation('');
+    setDeleteReason('');
+  }
+
   async function saveAccount() {
     if (!editing) return;
     setSaving(true);
@@ -142,6 +157,45 @@ export function PlatformCompanies({
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteAccount() {
+    if (!deleting || deleteConfirmation.trim() !== deleting.name) return;
+    setDeleteBusy(true);
+    try {
+      const response = await fetch(`/api/platform/accounts/${deleting.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmation: deleteConfirmation,
+          reason: deleteReason,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        cleanup?: { warnings?: string[] };
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? 'No se pudo eliminar la empresa');
+      }
+
+      toast.success(`${deleting.name} fue eliminada permanentemente`);
+      if ((payload.cleanup?.warnings?.length ?? 0) > 0) {
+        toast.warning(
+          'La empresa se eliminó, pero quedaron tareas técnicas registradas para revisión.'
+        );
+      }
+      setDeleting(null);
+      setDeleteConfirmation('');
+      setDeleteReason('');
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'No se pudo eliminar'
+      );
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -526,6 +580,27 @@ export function PlatformCompanies({
               Al suspender, el equipo pierde acceso operativo inmediatamente.
               Los datos no se eliminan y tú conservas acceso desde este panel.
             </div>
+
+            <div className="border-destructive/25 bg-destructive/5 flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-destructive text-sm font-semibold">
+                  Zona de eliminación
+                </p>
+                <p className="text-muted-foreground mt-1 text-xs leading-5">
+                  Borra definitivamente la empresa y todos sus datos asociados.
+                </p>
+              </div>
+              {editing ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => openDeleteDialog(editing)}
+                  disabled={saving}
+                >
+                  <Trash2 /> Eliminar empresa
+                </Button>
+              ) : null}
+            </div>
           </div>
 
           <DialogFooter>
@@ -538,6 +613,84 @@ export function PlatformCompanies({
             </Button>
             <Button onClick={saveAccount} disabled={saving}>
               {saving ? 'Guardando...' : 'Guardar cambios'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleting}
+        onOpenChange={(open) => {
+          if (!open && !deleteBusy) setDeleting(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="bg-destructive/10 text-destructive mb-2 flex size-11 items-center justify-center rounded-2xl">
+              <TriangleAlert className="size-5" />
+            </div>
+            <DialogTitle>Eliminar {deleting?.name}</DialogTitle>
+            <DialogDescription>
+              Esta acción es permanente y no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-2">
+            <div className="border-destructive/25 bg-destructive/5 rounded-xl border p-4 text-sm leading-6">
+              Se eliminarán los contactos, conversaciones, archivos, catálogos,
+              conexiones y accesos de{' '}
+              <strong>{deleting?.users ?? 0} usuarios</strong>. Si existe una
+              suscripción de Mercado Pago, Nexora intentará cancelarla antes de
+              borrar la empresa.
+            </div>
+
+            <label className="grid gap-2 text-sm font-medium">
+              Para confirmar, escribe{' '}
+              <span className="text-foreground font-bold">
+                {deleting?.name}
+              </span>
+              <Input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                placeholder={deleting?.name ?? ''}
+                autoComplete="off"
+                disabled={deleteBusy}
+              />
+            </label>
+
+            <label className="grid gap-2 text-sm font-medium">
+              Motivo administrativo (opcional)
+              <textarea
+                value={deleteReason}
+                onChange={(event) => setDeleteReason(event.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="Ejemplo: empresa de prueba creada por error"
+                disabled={deleteBusy}
+                className="border-input bg-background focus:ring-ring/40 rounded-lg border p-3 outline-none focus:ring-2 disabled:opacity-60"
+              />
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleting(null)}
+              disabled={deleteBusy}
+            >
+              Conservar empresa
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={deleteAccount}
+              disabled={
+                deleteBusy ||
+                !deleting ||
+                deleteConfirmation.trim() !== deleting.name
+              }
+            >
+              <Trash2 />
+              {deleteBusy ? 'Eliminando...' : 'Eliminar definitivamente'}
             </Button>
           </DialogFooter>
         </DialogContent>
