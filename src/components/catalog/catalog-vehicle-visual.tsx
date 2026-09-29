@@ -7,6 +7,7 @@ interface CatalogVehicleVisualProps {
   label: string;
   imageUrl?: string | null;
   compact?: boolean;
+  badgeLabel?: string;
 }
 
 export function CatalogVehicleVisual({
@@ -14,6 +15,7 @@ export function CatalogVehicleVisual({
   label,
   imageUrl,
   compact = false,
+  badgeLabel,
 }: CatalogVehicleVisualProps) {
   return (
     <div
@@ -46,7 +48,7 @@ export function CatalogVehicleVisual({
       {!compact && (
         <div className="absolute right-3 bottom-3 flex items-center gap-1 rounded-full border border-white/20 bg-black/25 px-2 py-1 text-[10px] font-semibold text-white/85 backdrop-blur-md">
           <ImageIcon className="size-3" />
-          {imageUrl ? 'Fotografía principal' : 'Sin fotografía'}
+          {badgeLabel ?? (imageUrl ? 'Fotografía principal' : 'Sin fotografía')}
         </div>
       )}
     </div>

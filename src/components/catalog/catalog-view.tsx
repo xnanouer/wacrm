@@ -6,6 +6,7 @@ import {
   Archive,
   CarFront,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Clock3,
   ClipboardCheck,
@@ -22,6 +23,7 @@ import {
   Send,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -144,6 +146,9 @@ export function CatalogView({
   const [submittingVehicleId, setSubmittingVehicleId] = useState<string | null>(
     null
   );
+  const [deletingVehicleId, setDeletingVehicleId] = useState<string | null>(
+    null
+  );
   const [reviewRequest, setReviewRequest] = useState<ReviewRequest | null>(
     null
   );
@@ -151,6 +156,7 @@ export function CatalogView({
   const [reviewing, setReviewing] = useState(false);
   const inventoryRef = useRef<HTMLElement>(null);
   const submittingVehiclesRef = useRef(new Set<string>());
+  const deletingVehiclesRef = useRef(new Set<string>());
 
   const makes = useMemo(
     () => [...new Set(vehicles.map((vehicle) => vehicle.make))].sort(),
@@ -258,6 +264,71 @@ export function CatalogView({
     await refreshCatalog();
     setSelectedVehicle(null);
     toast.success('Vehículo archivado.');
+  }
+
+  async function handleDelete(vehicle: CatalogVehicle) {
+    if (deletingVehiclesRef.current.has(vehicle.id)) return;
+
+    const confirmed = window.confirm(
+      `¿Eliminar definitivamente ${vehicle.make} ${vehicle.model} ${vehicle.year} (${vehicle.internalCode})?\n\nEsta acción no se puede deshacer.`
+    );
+    if (!confirmed) return;
+
+    deletingVehiclesRef.current.add(vehicle.id);
+    setDeletingVehicleId(vehicle.id);
+    try {
+      const response = await fetch(`/api/catalog/${vehicle.id}`, {
+        method: 'DELETE',
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        warning?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(
+          payload?.error ?? 'No fue posible eliminar el vehículo.'
+        );
+      }
+
+      setSelectedVehicle(null);
+      setVehicles((current) =>
+        current.filter((candidate) => candidate.id !== vehicle.id)
+      );
+      if (catalogStatusConsumesQuota(vehicle.status)) {
+        setUsage((current) => {
+          const used = Math.max(0, current.used - 1);
+          return {
+            ...current,
+            used,
+            remaining: Math.max(0, current.limit - used),
+          };
+        });
+      }
+
+      toast.success('Vehículo eliminado definitivamente.');
+      if (payload?.warning) toast.warning(payload.warning);
+
+      try {
+        await refreshCatalog();
+      } catch (error) {
+        console.error('[catalog] deleted but refresh failed:', error);
+        toast.warning(
+          'El vehículo fue eliminado, pero no se pudo actualizar el inventario.',
+          { description: 'Recarga la página para sincronizar los datos.' }
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'No fue posible eliminar el vehículo.'
+      );
+    } finally {
+      deletingVehiclesRef.current.delete(vehicle.id);
+      setDeletingVehicleId((current) =>
+        current === vehicle.id ? null : current
+      );
+    }
   }
 
   async function handleSubmitForApproval(vehicle: CatalogVehicle) {
@@ -644,6 +715,7 @@ export function CatalogView({
                   onOpen={() => setSelectedVehicle(vehicle)}
                   onDuplicate={() => handleDuplicate(vehicle)}
                   onArchive={() => handleArchive(vehicle)}
+                  onDelete={() => handleDelete(vehicle)}
                   onReview={(decision) => openReview(vehicle, decision)}
                 />
               ))}
@@ -659,6 +731,7 @@ export function CatalogView({
                     onOpen={() => setSelectedVehicle(vehicle)}
                     onDuplicate={() => handleDuplicate(vehicle)}
                     onArchive={() => handleArchive(vehicle)}
+                    onDelete={() => handleDelete(vehicle)}
                     onReview={(decision) => openReview(vehicle, decision)}
                   />
                 ))}
@@ -688,7 +761,9 @@ export function CatalogView({
         canAdminister={canAdminister}
         canSend={canCreate}
         submitting={submittingVehicleId === selectedVehicle?.id}
+        deleting={deletingVehicleId === selectedVehicle?.id}
         onSubmit={handleSubmitForApproval}
+        onDelete={handleDelete}
         onReview={openReview}
         onEdit={(vehicle) => {
           setSelectedVehicle(null);
@@ -927,6 +1002,7 @@ function VehicleCard({
   onOpen,
   onDuplicate,
   onArchive,
+  onDelete,
   onReview,
 }: {
   vehicle: CatalogVehicle;
@@ -934,6 +1010,7 @@ function VehicleCard({
   onOpen: () => void;
   onDuplicate: () => void;
   onArchive: () => void;
+  onDelete: () => void;
   onReview: (decision: ReviewDecision) => void;
 }) {
   const price = vehicle.offerPrice ?? vehicle.listPrice;
@@ -994,6 +1071,13 @@ function VehicleCard({
                   <DropdownMenuItem onClick={onArchive}>
                     <Archive className="size-4" />
                     Archivar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={onDelete}
+                  >
+                    <Trash2 className="size-4" />
+                    Eliminar definitivamente
                   </DropdownMenuItem>
                 </>
               )}
@@ -1226,7 +1310,9 @@ function VehicleDetailsDialog({
   canAdminister,
   canSend,
   submitting,
+  deleting,
   onSubmit,
+  onDelete,
   onReview,
   onEdit,
   onSend,
@@ -1236,7 +1322,9 @@ function VehicleDetailsDialog({
   canAdminister: boolean;
   canSend: boolean;
   submitting: boolean;
+  deleting: boolean;
   onSubmit: (vehicle: CatalogVehicle) => void;
+  onDelete: (vehicle: CatalogVehicle) => void;
   onReview: (vehicle: CatalogVehicle, decision: ReviewDecision) => void;
   onEdit: (vehicle: CatalogVehicle) => void;
   onSend: (vehicle: CatalogVehicle) => void;
@@ -1251,12 +1339,8 @@ function VehicleDetailsDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto p-0 sm:max-w-3xl">
-        <CatalogVehicleVisual
-          tone={vehicle.photoTone}
-          label={`${vehicle.make} ${vehicle.model}`}
-          imageUrl={vehicle.photoUrl}
-        />
+      <DialogContent className="block max-h-[92vh] overflow-y-auto p-0 sm:max-w-3xl">
+        <VehiclePhotoGallery key={vehicle.id} vehicle={vehicle} />
         <div className="px-5 pb-6 sm:px-7">
           <DialogHeader>
             <div className="flex flex-wrap items-center gap-2">
@@ -1340,11 +1424,28 @@ function VehicleDetailsDialog({
               {vehicle.imageCount === 1 ? 'foto' : 'fotos'}
             </div>
             <div className="flex flex-wrap justify-end gap-2">
+              {canAdminister && (
+                <Button
+                  variant="destructive"
+                  disabled={deleting}
+                  onClick={() => onDelete(vehicle)}
+                >
+                  {deleting ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                  Eliminar
+                </Button>
+              )}
               <Button
                 variant="outline"
                 disabled={
-                  !canAdminister &&
-                  !(vehicle.status === 'draft' && vehicle.createdByCurrentUser)
+                  deleting ||
+                  (!canAdminister &&
+                    !(
+                      vehicle.status === 'draft' && vehicle.createdByCurrentUser
+                    ))
                 }
                 onClick={() => onEdit(vehicle)}
               >
@@ -1352,7 +1453,7 @@ function VehicleDetailsDialog({
               </Button>
               {canSubmit && (
                 <Button
-                  disabled={submitting || vehicle.imageCount === 0}
+                  disabled={deleting || submitting || vehicle.imageCount === 0}
                   title={
                     vehicle.imageCount === 0
                       ? 'Primero agrega una fotografía principal'
@@ -1372,19 +1473,23 @@ function VehicleDetailsDialog({
                 <>
                   <Button
                     variant="outline"
+                    disabled={deleting}
                     onClick={() => onReview(vehicle, 'rejected')}
                   >
                     <XCircle className="size-4" />
                     Rechazar
                   </Button>
-                  <Button onClick={() => onReview(vehicle, 'approved')}>
+                  <Button
+                    disabled={deleting}
+                    onClick={() => onReview(vehicle, 'approved')}
+                  >
                     <CheckCircle2 className="size-4" />
                     Aprobar
                   </Button>
                 </>
               )}
               {vehicle.status === 'available' && canSend && (
-                <Button onClick={() => onSend(vehicle)}>
+                <Button disabled={deleting} onClick={() => onSend(vehicle)}>
                   <Send className="size-4" />
                   Enviar a cliente
                 </Button>
@@ -1394,6 +1499,76 @@ function VehicleDetailsDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function VehiclePhotoGallery({ vehicle }: { vehicle: CatalogVehicle }) {
+  const photos = (vehicle.images ?? [])
+    .filter(
+      (image): image is typeof image & { url: string } =>
+        typeof image.url === 'string' && image.url.length > 0
+    )
+    .map((image) => ({
+      id: image.id,
+      url: image.url,
+      isPrimary: image.isPrimary,
+    }));
+
+  if (photos.length === 0 && vehicle.photoUrl) {
+    photos.push({
+      id: 'primary-fallback',
+      url: vehicle.photoUrl,
+      isPrimary: true,
+    });
+  }
+
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activePhoto = photos[activeIndex] ?? null;
+  const hasMultiplePhotos = photos.length > 1;
+  const badgeLabel = activePhoto
+    ? `${activeIndex + 1} de ${photos.length}${activePhoto.isPrimary ? ' · Principal' : ''}`
+    : undefined;
+
+  return (
+    <div className="relative overflow-hidden rounded-t-2xl sm:rounded-t-3xl">
+      <CatalogVehicleVisual
+        tone={vehicle.photoTone}
+        label={`${vehicle.make} ${vehicle.model}`}
+        imageUrl={activePhoto?.url ?? vehicle.photoUrl}
+        badgeLabel={badgeLabel}
+      />
+
+      {hasMultiplePhotos && (
+        <>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="bg-background/88 hover:bg-background absolute top-1/2 left-3 z-10 -translate-y-1/2 rounded-full shadow-lg backdrop-blur"
+            aria-label="Ver fotografía anterior"
+            onClick={() =>
+              setActiveIndex(
+                (current) => (current - 1 + photos.length) % photos.length
+              )
+            }
+          >
+            <ChevronLeft className="size-5" />
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="bg-background/88 hover:bg-background absolute top-1/2 right-3 z-10 -translate-y-1/2 rounded-full shadow-lg backdrop-blur"
+            aria-label="Ver fotografía siguiente"
+            onClick={() =>
+              setActiveIndex((current) => (current + 1) % photos.length)
+            }
+          >
+            <ChevronRight className="size-5" />
+          </Button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -1522,11 +1697,13 @@ function CatalogReviewDialog({
 
 function DetailStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-border/70 bg-background rounded-xl border p-3">
-      <p className="text-muted-foreground text-[10px] font-bold tracking-wide uppercase">
+    <div className="border-border/70 bg-muted/20 min-w-0 rounded-xl border px-3.5 py-3">
+      <p className="text-muted-foreground text-[11px] leading-4 font-semibold tracking-wide uppercase">
         {label}
       </p>
-      <p className="mt-1 truncate text-sm font-semibold">{value}</p>
+      <p className="mt-1 text-sm leading-5 font-semibold break-words">
+        {value || 'Sin informar'}
+      </p>
     </div>
   );
 }
