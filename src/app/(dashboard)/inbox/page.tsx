@@ -8,6 +8,11 @@ import {
   normalizeConversation,
   sortConversationsByLastMessage,
 } from '@/lib/inbox/conversations';
+import {
+  mergeConversationDeltas,
+  mergeMessageDeltas,
+  type InboxLiveSyncPayload,
+} from '@/lib/inbox/live-sync';
 import type {
   Conversation,
   Message,
@@ -498,50 +503,139 @@ export default function InboxPage() {
     wasConnectedRef.current = isConnected;
   }, [isConnected]);
 
-  // Realtime is the fast path. This visible-tab safety sync is the recovery
-  // path for a WebSocket that is technically subscribed but silently missed
-  // an event (browser sleep, mobile network hand-off, proxy timeout, etc.).
-  // While connected it is intentionally infrequent; while disconnected we
-  // retry faster so new messages still surface without a manual page reload.
+  // A full refetch remains useful when the tab comes back from sleep or the
+  // network reconnects. Regular gap recovery is handled incrementally below.
   useEffect(() => {
+    const resync = () => setResyncToken((n) => n + 1);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') resync();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('online', resync);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', resync);
+    };
+  }, []);
+
+  /**
+   * Realtime remains the instant path. This small same-origin delta request
+   * is the guaranteed recovery path: it does not rely on the browser's
+   * Supabase WebSocket and only returns rows changed since the previous sync.
+   */
+  const activeConversationId = activeConversation?.id ?? null;
+  useEffect(() => {
+    let stopped = false;
     let timer: number | null = null;
+    let cursorMs = Date.now() - 30_000;
+    let consecutiveFailures = 0;
+    let inFlight = false;
 
     const clearTimer = () => {
       if (timer !== null) {
-        window.clearInterval(timer);
+        window.clearTimeout(timer);
         timer = null;
       }
     };
 
-    const resync = () => setResyncToken((n) => n + 1);
-
-    const schedule = () => {
+    const schedule = (delay = 3_000) => {
       clearTimer();
-      if (document.visibilityState !== 'visible') return;
-      timer = window.setInterval(resync, isConnected ? 10_000 : 3_000);
+      if (stopped) return;
+      timer = window.setTimeout(() => void sync(), delay);
     };
 
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        resync();
+    async function sync() {
+      if (stopped || inFlight) return;
+      if (document.visibilityState !== 'visible') {
+        schedule();
+        return;
       }
-      schedule();
-    };
+      inFlight = true;
 
-    const onOnline = () => {
-      resync();
-      schedule();
-    };
+      const params = new URLSearchParams({
+        // Five seconds of overlap protects against clock skew and rows that
+        // commit while the previous request is returning. Merges deduplicate.
+        since: new Date(cursorMs - 5_000).toISOString(),
+      });
+      if (activeConversationId) {
+        params.set('conversation_id', activeConversationId);
+      }
 
-    schedule();
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('online', onOnline);
-    return () => {
+      try {
+        const response = await fetch(`/api/inbox/sync?${params.toString()}`, {
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) {
+          throw new Error(`Inbox sync failed with ${response.status}`);
+        }
+
+        const payload = (await response.json()) as InboxLiveSyncPayload;
+        if (stopped) return;
+
+        const syncedAt = Date.parse(payload.synced_at);
+        if (!Number.isNaN(syncedAt)) cursorMs = Math.max(cursorMs, syncedAt);
+        consecutiveFailures = 0;
+
+        if (payload.conversations.length > 0) {
+          setConversations((current) =>
+            mergeConversationDeltas(current, payload.conversations)
+          );
+
+          if (activeConversationId) {
+            const updatedActive = payload.conversations.find(
+              (conversation) => conversation.id === activeConversationId
+            );
+            if (updatedActive) {
+              setActiveConversation((current) =>
+                current?.id === updatedActive.id
+                  ? {
+                      ...current,
+                      ...updatedActive,
+                      contact: updatedActive.contact ?? current.contact,
+                    }
+                  : current
+              );
+              if (updatedActive.contact) {
+                setActiveContact(updatedActive.contact);
+              }
+            }
+          }
+        }
+
+        if (activeConversationId && payload.messages.length > 0) {
+          setMessages((current) =>
+            mergeMessageDeltas(current, payload.messages)
+          );
+        }
+      } catch (error) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures === 1 || consecutiveFailures % 10 === 0) {
+          console.warn('[inbox] Background sync failed:', error);
+        }
+      } finally {
+        inFlight = false;
+        schedule();
+      }
+    }
+
+    const syncNow = () => {
+      if (document.visibilityState !== 'visible') return;
       clearTimer();
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('online', onOnline);
+      void sync();
     };
-  }, [isConnected]);
+
+    schedule(1_000);
+    document.addEventListener('visibilitychange', syncNow);
+    window.addEventListener('online', syncNow);
+    return () => {
+      stopped = true;
+      clearTimer();
+      document.removeEventListener('visibilitychange', syncNow);
+      window.removeEventListener('online', syncNow);
+    };
+  }, [activeConversationId]);
 
   /**
    * Manual refresh trigger for the thread-header refresh button.
