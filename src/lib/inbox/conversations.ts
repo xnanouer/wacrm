@@ -60,6 +60,25 @@ export function normalizeConversations(
   return rows.map(normalizeConversation);
 }
 
+/**
+ * Keep the inbox ordered by its most recent activity after a realtime patch.
+ * The initial database query already uses this order, but an UPDATE received
+ * over Realtime only patches the existing array in memory. Without sorting
+ * again, an older conversation that receives a new message stays buried in
+ * its previous position until the whole page is reloaded.
+ */
+export function sortConversationsByLastMessage(
+  conversations: Conversation[]
+): Conversation[] {
+  return [...conversations].sort((left, right) => {
+    const leftTime = Date.parse(left.last_message_at ?? left.created_at);
+    const rightTime = Date.parse(right.last_message_at ?? right.created_at);
+    const safeLeftTime = Number.isNaN(leftTime) ? 0 : leftTime;
+    const safeRightTime = Number.isNaN(rightTime) ? 0 : rightTime;
+    return safeRightTime - safeLeftTime;
+  });
+}
+
 export interface ContactFilters {
   /** Tag ids; a conversation matches if its contact has ANY of them (OR). */
   tagIds: string[];

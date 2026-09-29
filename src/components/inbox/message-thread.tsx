@@ -398,6 +398,7 @@ export function MessageThread({
   // during render (React 19 refs rule); consumers only read `.current`
   // inside the async fetch completion, which runs after the render.
   const onMessagesLoadedRef = useRef(onMessagesLoaded);
+  const loadedConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     onMessagesLoadedRef.current = onMessagesLoaded;
   });
@@ -410,13 +411,20 @@ export function MessageThread({
   // arriving while the thread is open don't trigger a full refetch —
   // they only flip hasUnread, which only the reset effect listens to.
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      loadedConversationIdRef.current = null;
+      return;
+    }
 
     const supabase = createClient();
     let cancelled = false;
 
     (async () => {
-      setLoading(true);
+      // Periodic recovery syncs stay invisible. The blocking loader is only
+      // useful when the user opens a different conversation for the first
+      // time, not while refreshing the thread in the background.
+      const isInitialLoad = loadedConversationIdRef.current !== conversationId;
+      if (isInitialLoad) setLoading(true);
 
       const { data, error } = await supabase
         .from('messages')
@@ -429,10 +437,11 @@ export function MessageThread({
       if (error) {
         console.error('Failed to fetch messages:', error);
       } else {
+        loadedConversationIdRef.current = conversationId;
         onMessagesLoadedRef.current(data ?? []);
       }
 
-      if (!cancelled) setLoading(false);
+      if (!cancelled && isInitialLoad) setLoading(false);
     })();
 
     return () => {

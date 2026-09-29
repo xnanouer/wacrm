@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   CONVERSATION_SELECT,
   normalizeConversation,
+  sortConversationsByLastMessage,
 } from '@/lib/inbox/conversations';
 import type {
   Conversation,
@@ -46,9 +47,10 @@ export default function InboxPage() {
   /**
    * Bumped whenever we want children (ConversationList, MessageThread)
    * to refetch from the DB — used as a safety net against missed
-   * realtime events. Bumped on WS reconnect and on tab visibility →
-   * visible. The initial mount fetches don't depend on this; they fire
-   * once on conversationId-change as usual.
+   * realtime events. Bumped on WS reconnect, on tab visibility → visible,
+   * and by a quiet periodic safety sync while the inbox is visible. The
+   * initial mount fetches don't depend on this; they fire once on
+   * conversationId-change as usual.
    */
   const [resyncToken, setResyncToken] = useState(0);
 
@@ -362,19 +364,21 @@ export default function InboxPage() {
         // always read false here.
         if (knownConvIdsRef.current.has(newMsg.conversation_id)) {
           setConversations((prev) =>
-            prev.map((c) =>
-              c.id === newMsg.conversation_id
-                ? {
-                    ...c,
-                    last_message_text: newMsg.content_text ?? '',
-                    last_message_at: newMsg.created_at,
-                    last_message_sender_type: newMsg.sender_type,
-                    unread_count:
-                      activeConversation?.id === newMsg.conversation_id
-                        ? 0
-                        : c.unread_count + 1,
-                  }
-                : c
+            sortConversationsByLastMessage(
+              prev.map((c) =>
+                c.id === newMsg.conversation_id
+                  ? {
+                      ...c,
+                      last_message_text: newMsg.content_text ?? '',
+                      last_message_at: newMsg.created_at,
+                      last_message_sender_type: newMsg.sender_type,
+                      unread_count:
+                        activeConversation?.id === newMsg.conversation_id
+                          ? 0
+                          : c.unread_count + 1,
+                    }
+                  : c
+              )
             )
           );
         } else {
@@ -430,14 +434,16 @@ export default function InboxPage() {
           // UPDATE to round-trip. Non-active convs take the value as-is.
           const isActive = activeConversation?.id === conv.id;
           setConversations((prev) =>
-            prev.map((c) =>
-              c.id === conv.id
-                ? {
-                    ...c,
-                    ...conv,
-                    unread_count: isActive ? 0 : conv.unread_count,
-                  }
-                : c
+            sortConversationsByLastMessage(
+              prev.map((c) =>
+                c.id === conv.id
+                  ? {
+                      ...c,
+                      ...conv,
+                      unread_count: isActive ? 0 : conv.unread_count,
+                    }
+                  : c
+              )
             )
           );
         } else {
@@ -492,23 +498,50 @@ export default function InboxPage() {
     wasConnectedRef.current = isConnected;
   }, [isConnected]);
 
-  /**
-   * Refetch when the tab regains focus. Background tabs may have their
-   * WS throttled by the browser even without a full disconnect, so a
-   * visibilitychange → visible is a reliable signal that we may have
-   * missed events. Cheap to fire; the children dedupe on their own.
-   */
+  // Realtime is the fast path. This visible-tab safety sync is the recovery
+  // path for a WebSocket that is technically subscribed but silently missed
+  // an event (browser sleep, mobile network hand-off, proxy timeout, etc.).
+  // While connected it is intentionally infrequent; while disconnected we
+  // retry faster so new messages still surface without a manual page reload.
   useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        setResyncToken((n) => n + 1);
+    let timer: number | null = null;
+
+    const clearTimer = () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
       }
     };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
+
+    const resync = () => setResyncToken((n) => n + 1);
+
+    const schedule = () => {
+      clearTimer();
+      if (document.visibilityState !== 'visible') return;
+      timer = window.setInterval(resync, isConnected ? 10_000 : 3_000);
     };
-  }, []);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        resync();
+      }
+      schedule();
+    };
+
+    const onOnline = () => {
+      resync();
+      schedule();
+    };
+
+    schedule();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('online', onOnline);
+    return () => {
+      clearTimer();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [isConnected]);
 
   /**
    * Manual refresh trigger for the thread-header refresh button.
@@ -708,7 +741,7 @@ export default function InboxPage() {
   const hasActiveConv = !!activeConversation;
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 w-full max-w-full min-w-0 flex-col overflow-hidden">
       {/* WhatsApp connection banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
       {whatsappConnected === false && (
@@ -720,13 +753,13 @@ export default function InboxPage() {
         </div>
       )}
 
-      <div className="relative flex min-h-0 w-full min-w-0 max-w-full flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 w-full max-w-full min-w-0 flex-1 overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
             thread can occupy the full width. Always visible on lg+. */}
         <div
           className={cn(
-            'flex h-full w-full min-w-0 max-w-full flex-1 overflow-hidden lg:w-auto lg:flex-none',
+            'flex h-full w-full max-w-full min-w-0 flex-1 overflow-hidden lg:w-auto lg:flex-none',
             hasActiveConv ? 'hidden lg:flex' : 'flex'
           )}
         >
@@ -752,7 +785,7 @@ export default function InboxPage() {
             on the right. Issue #165. */}
         <div
           className={cn(
-            'flex h-full w-full min-w-0 max-w-full flex-1 overflow-hidden lg:flex',
+            'flex h-full w-full max-w-full min-w-0 flex-1 overflow-hidden lg:flex',
             hasActiveConv ? 'flex' : 'hidden lg:flex'
           )}
         >

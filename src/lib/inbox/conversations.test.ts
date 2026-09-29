@@ -4,6 +4,7 @@ import {
   matchesContactFilters,
   normalizeConversation,
   requiresWhatsAppCustomerCareWindow,
+  sortConversationsByLastMessage,
 } from './conversations';
 import type { Conversation } from '@/types';
 
@@ -196,5 +197,41 @@ describe('normalizeConversation', () => {
     };
     // A contactless row passes through untouched (consumers use `?.`).
     expect(normalizeConversation(raw).contact).toBeNull();
+  });
+});
+
+describe('sortConversationsByLastMessage', () => {
+  it('moves a conversation with new activity to the top', () => {
+    const older = makeConversation({ name: 'Older lead' });
+    older.id = 'older';
+    older.created_at = '2026-09-01T10:00:00.000Z';
+    older.last_message_at = '2026-09-29T10:05:00.000Z';
+
+    const previouslyFirst = makeConversation({ name: 'Current first lead' });
+    previouslyFirst.id = 'first';
+    previouslyFirst.created_at = '2026-09-20T10:00:00.000Z';
+    previouslyFirst.last_message_at = '2026-09-29T10:00:00.000Z';
+
+    expect(
+      sortConversationsByLastMessage([previouslyFirst, older]).map(
+        (conversation) => conversation.id
+      )
+    ).toEqual(['older', 'first']);
+  });
+
+  it('falls back to created_at for conversations without a message yet', () => {
+    const oldConversation = makeConversation(null);
+    oldConversation.id = 'old';
+    oldConversation.created_at = '2026-09-01T10:00:00.000Z';
+
+    const newConversation = makeConversation(null);
+    newConversation.id = 'new';
+    newConversation.created_at = '2026-09-02T10:00:00.000Z';
+
+    expect(
+      sortConversationsByLastMessage([oldConversation, newConversation]).map(
+        (conversation) => conversation.id
+      )
+    ).toEqual(['new', 'old']);
   });
 });
