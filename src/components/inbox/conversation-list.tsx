@@ -67,6 +67,7 @@ import {
   getWaitingMinutes,
   isConversationAwaitingReply,
 } from '@/lib/inbox/response-waiting';
+import { visibleSocialMessageText } from '@/lib/meta/social-share';
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -446,7 +447,8 @@ export function ConversationList({
       result = result.filter((c) => {
         const name = c.contact?.name?.toLowerCase() ?? '';
         const phone = c.contact?.phone?.toLowerCase() ?? '';
-        const lastMsg = c.last_message_text?.toLowerCase() ?? '';
+        const lastMsg =
+          visibleSocialMessageText(c.last_message_text)?.toLowerCase() ?? '';
         return name.includes(q) || phone.includes(q) || lastMsg.includes(q);
       });
     }
@@ -554,7 +556,7 @@ export function ConversationList({
     // w-full on mobile so the list occupies the whole viewport when it's
     // the single pane showing; fixed width on desktop where it shares the
     // row with the thread + contact sidebar.
-    <div className="border-border/60 bg-card/95 flex h-full w-full min-w-0 max-w-full flex-col overflow-hidden border-r-0 backdrop-blur-xl lg:w-[25rem] lg:border-r xl:w-[27rem]">
+    <div className="border-border/60 bg-card/95 flex h-full w-full max-w-full min-w-0 flex-col overflow-hidden border-r-0 backdrop-blur-xl lg:w-[25rem] lg:border-r xl:w-[27rem]">
       <div className="border-border/60 border-b px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="mb-2.5 flex items-center justify-between gap-3 sm:mb-3">
           <div>
@@ -1085,7 +1087,7 @@ function ConversationItem({
   return (
     <div
       className={cn(
-        'group border-border/55 hover:bg-muted/45 relative flex w-full min-w-0 max-w-full overflow-hidden border-b text-left transition-colors',
+        'group border-border/55 hover:bg-muted/45 relative flex w-full max-w-full min-w-0 overflow-hidden border-b text-left transition-colors',
         isActive && 'bg-primary-soft'
       )}
     >
@@ -1127,7 +1129,8 @@ function ConversationItem({
           </div>
           <div className="mt-1 flex items-center justify-between gap-2">
             <p className="text-muted-foreground truncate text-sm leading-6">
-              {conversation.last_message_text || 'Aún no hay mensajes'}
+              {visibleSocialMessageText(conversation.last_message_text) ||
+                'Aún no hay mensajes'}
             </p>
           </div>
           <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1">

@@ -69,6 +69,40 @@ describe('parseMetaMessagingEvents', () => {
     });
   });
 
+  it('normalizes an Instagram reel share with its permalink', () => {
+    const events = parseMetaMessagingEvents({
+      object: 'instagram',
+      entry: [
+        {
+          id: 'ig-business-1',
+          messaging: [
+            {
+              sender: { id: 'ig-scoped-user-1' },
+              message: {
+                mid: 'mid-instagram-reel',
+                attachments: [
+                  {
+                    type: 'ig_reel',
+                    payload: {
+                      url: 'https://www.instagram.com/reel/DYvq6V9RuW9/',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events[0]).toMatchObject({
+      channel: 'instagram',
+      contentType: 'text',
+      text: 'Reel de Instagram',
+      mediaUrl: 'https://www.instagram.com/reel/DYvq6V9RuW9/',
+    });
+  });
+
   it('ignores echoes, self-tests and non-messaging payloads', () => {
     expect(
       parseMetaMessagingEvents({

@@ -19,6 +19,7 @@ import {
   ZoomIn,
   ReceiptText,
   ArrowUpRight,
+  Camera,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -27,6 +28,11 @@ import { MessageReactions } from './message-reactions';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { privateMediaViewUrl } from '@/lib/storage/private-media-reference';
 import { visibleMediaText } from '@/lib/inbox/media-text';
+import {
+  instagramPermalink,
+  instagramShareTitle,
+  visibleSocialMessageText,
+} from '@/lib/meta/social-share';
 
 interface MessageBubbleProps {
   message: Message;
@@ -86,6 +92,50 @@ function MediaUnavailable({ label }: { label: string }) {
     <div className="bg-muted/40 text-muted-foreground flex items-center gap-2 rounded-xl px-3 py-2 text-sm">
       <ImageOff className="text-muted-foreground h-4 w-4 shrink-0" />
       <span>No se pudo mostrar {label.toLowerCase()}</span>
+    </div>
+  );
+}
+
+function InstagramShareCard({
+  url,
+  contentText,
+}: {
+  url: string;
+  contentText?: string | null;
+}) {
+  const title = instagramShareTitle(url, contentText);
+  const visibleText = visibleSocialMessageText(contentText);
+  const caption = visibleText && visibleText !== title ? visibleText : null;
+
+  return (
+    <div className="max-w-72 overflow-hidden rounded-xl border border-fuchsia-400/30 bg-gradient-to-br from-fuchsia-500/15 via-purple-500/10 to-orange-400/10">
+      <div className="flex items-center gap-3 px-3 py-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-500 via-purple-500 to-orange-400 text-white shadow-sm">
+          <Camera className="size-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold">{title}</span>
+          <span className="block text-xs opacity-75">
+            El cliente compartió este contenido
+          </span>
+        </span>
+      </div>
+      {caption ? (
+        <p className="border-t border-fuchsia-400/20 px-3 py-2 text-sm leading-5 break-words whitespace-pre-wrap">
+          {caption}
+        </p>
+      ) : null}
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-message-interactive="true"
+        onDoubleClick={(event) => event.stopPropagation()}
+        className="flex items-center justify-between gap-2 border-t border-fuchsia-400/20 px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-fuchsia-500/10"
+      >
+        Abrir en Instagram
+        <ExternalLink className="size-4 shrink-0" />
+      </a>
     </div>
   );
 }
@@ -298,12 +348,24 @@ function MessageContent({ message }: { message: Message }) {
   );
 
   switch (message.content_type) {
-    case 'text':
+    case 'text': {
+      const instagramUrl = instagramPermalink(message.media_url);
+      if (instagramUrl) {
+        return (
+          <InstagramShareCard
+            url={instagramUrl}
+            contentText={message.content_text}
+          />
+        );
+      }
+
       return (
         <p className="text-base leading-7 break-words whitespace-pre-wrap">
-          {message.content_text || 'Mensaje sin contenido disponible'}
+          {visibleSocialMessageText(message.content_text) ||
+            'Mensaje sin contenido disponible'}
         </p>
       );
+    }
 
     case 'image':
       return (

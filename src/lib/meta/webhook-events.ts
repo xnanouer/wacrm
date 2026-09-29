@@ -1,4 +1,5 @@
 import type { ConversationChannel, ContentType } from '@/types';
+import { metaAttachmentFallbackText } from './social-share';
 
 export interface SocialInboundMessage {
   channel: Exclude<ConversationChannel, 'whatsapp'>;
@@ -117,7 +118,7 @@ export function parseMetaMessagingEvents(
         timestamp: new Date(timestampMs).toISOString(),
         contentType: type,
         text:
-          message.text ?? (attachment?.type ? `[${attachment.type}]` : null),
+          message.text ?? metaAttachmentFallbackText(channel, attachment?.type),
         mediaUrl: attachment?.payload?.url ?? null,
       });
     }
