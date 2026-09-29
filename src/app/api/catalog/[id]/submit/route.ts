@@ -76,7 +76,23 @@ export async function POST(
     const { error } = await ctx.supabase.rpc('submit_catalog_item', {
       p_catalog_item_id: id,
     });
-    if (error) return submitError(error);
+    if (error) {
+      if ((error.message ?? '').includes('catalog_item_must_be_draft')) {
+        const { data: currentItem } = await ctx.supabase
+          .from('catalog_items')
+          .select('status')
+          .eq('id', id)
+          .eq('account_id', ctx.accountId)
+          .maybeSingle();
+        if (currentItem?.status === 'pending_approval') {
+          return NextResponse.json({
+            success: true,
+            alreadySubmitted: true,
+          });
+        }
+      }
+      return submitError(error);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -193,9 +193,18 @@ export function QuotationEditor({
   const [savingAction, setSavingAction] = useState<
     'save' | 'generate' | 'send' | null
   >(null);
+  const [persistedQuotation, setPersistedQuotation] =
+    useState<QuotationRecord | null>(initialQuotation);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [previewOpen, setPreviewOpen] = useState(false);
   const [recipientOpen, setRecipientOpen] = useState(false);
+  const savingRef = useRef(false);
+  const quotationRef = useRef<QuotationRecord | null>(initialQuotation);
+
+  useEffect(() => {
+    quotationRef.current = initialQuotation;
+    setPersistedQuotation(initialQuotation);
+  }, [initialQuotation]);
 
   useEffect(() => {
     const query = conversationId
@@ -371,19 +380,25 @@ export function QuotationEditor({
     action: 'save' | 'generate' | 'send' = 'save',
     recipientContactId?: string
   ) => {
+    if (savingRef.current) return;
     if (action === 'send') {
       if (!recipientContactId) {
         toast.error('Selecciona el contacto que recibirá la cotización.');
         return;
       }
     }
+    savingRef.current = true;
     setSavingAction(action);
     setErrors({});
+    let savedQuotation: QuotationRecord | null = null;
     try {
+      const existingQuotation = quotationRef.current;
       const response = await fetch(
-        initialQuotation ? `/api/quotes/${initialQuotation.id}` : '/api/quotes',
+        existingQuotation
+          ? `/api/quotes/${existingQuotation.id}`
+          : '/api/quotes',
         {
-          method: initialQuotation ? 'PATCH' : 'POST',
+          method: existingQuotation ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(input),
         }
@@ -398,6 +413,9 @@ export function QuotationEditor({
         throw new Error(payload.error || 'No fue posible guardar.');
       }
       const quotation = payload.quotation;
+      savedQuotation = quotation;
+      quotationRef.current = quotation;
+      setPersistedQuotation(quotation);
       if (action === 'generate' || action === 'send') {
         toast.info('Generando PDF y PNG...');
         const generateResponse = await fetch(
@@ -449,16 +467,28 @@ export function QuotationEditor({
       }
       if (action === 'save') {
         toast.success(
-          initialQuotation ? 'Cotización actualizada.' : 'Cotización creada.'
+          existingQuotation ? 'Cotización actualizada.' : 'Cotización creada.'
         );
       }
-      onSaved?.(quotation);
+      try {
+        onSaved?.(quotation);
+      } catch (error) {
+        console.error('[quotes] quotation saved but callback failed:', error);
+        toast.warning('La cotización se guardó correctamente.', {
+          description: 'Recarga la lista si aún no aparece.',
+        });
+      }
       if (!embedded) router.push(`/quotes/${quotation.id}`);
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'No fue posible guardar.';
       toast.error(
-        error instanceof Error ? error.message : 'No fue posible guardar.'
+        savedQuotation && action !== 'save'
+          ? `La cotización ${savedQuotation.quoteNumber} quedó guardada, pero no se completó la generación. ${message}`
+          : message
       );
     } finally {
+      savingRef.current = false;
       setSavingAction(null);
     }
   };
@@ -467,24 +497,24 @@ export function QuotationEditor({
   const previewRecord: QuotationRecord | null = settings
     ? {
         ...input,
-        id: initialQuotation?.id ?? 'preview',
+        id: persistedQuotation?.id ?? 'preview',
         accountId: settings.accountId,
-        quoteNumber: initialQuotation?.quoteNumber ?? 'NX-PREVIA',
-        sequenceNumber: initialQuotation?.sequenceNumber ?? 0,
-        currentVersion: initialQuotation?.currentVersion ?? 0,
-        status: initialQuotation?.status ?? 'draft',
+        quoteNumber: persistedQuotation?.quoteNumber ?? 'NX-PREVIA',
+        sequenceNumber: persistedQuotation?.sequenceNumber ?? 0,
+        currentVersion: persistedQuotation?.currentVersion ?? 0,
+        status: persistedQuotation?.status ?? 'draft',
         finalPrice: amounts.finalPrice,
         amountToFinance: amounts.amountToFinance,
-        generatedAt: initialQuotation?.generatedAt ?? null,
-        lastSentAt: initialQuotation?.lastSentAt ?? null,
-        deletionHold: initialQuotation?.deletionHold ?? false,
-        deletionHoldReason: initialQuotation?.deletionHoldReason ?? null,
-        scheduledDeletionAt: initialQuotation?.scheduledDeletionAt ?? null,
+        generatedAt: persistedQuotation?.generatedAt ?? null,
+        lastSentAt: persistedQuotation?.lastSentAt ?? null,
+        deletionHold: persistedQuotation?.deletionHold ?? false,
+        deletionHoldReason: persistedQuotation?.deletionHoldReason ?? null,
+        scheduledDeletionAt: persistedQuotation?.scheduledDeletionAt ?? null,
         createdByUserId:
-          initialQuotation?.createdByUserId ?? options.currentUserId,
+          persistedQuotation?.createdByUserId ?? options.currentUserId,
         updatedByUserId:
-          initialQuotation?.updatedByUserId ?? options.currentUserId,
-        createdAt: initialQuotation?.createdAt ?? new Date().toISOString(),
+          persistedQuotation?.updatedByUserId ?? options.currentUserId,
+        createdAt: persistedQuotation?.createdAt ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
     : null;
@@ -530,8 +560,8 @@ export function QuotationEditor({
                 Cotizaciones
               </p>
               <h1 className="text-foreground mt-1 text-2xl font-bold tracking-tight">
-                {initialQuotation
-                  ? `Editar ${initialQuotation.quoteNumber}`
+                {persistedQuotation
+                  ? `Editar ${persistedQuotation.quoteNumber}`
                   : 'Nueva cotización vehicular'}
               </h1>
             </div>

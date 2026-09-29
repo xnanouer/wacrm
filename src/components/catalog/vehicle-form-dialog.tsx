@@ -132,6 +132,7 @@ export function VehicleFormDialog({
   );
   const [saving, setSaving] = useState(false);
   const objectUrls = useRef(new Set<string>());
+  const savingRef = useRef(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -158,6 +159,7 @@ export function VehicleFormDialog({
   }
 
   function handleOpenChange(nextOpen: boolean) {
+    if (!nextOpen && savingRef.current) return;
     if (!nextOpen) clearNewImagePreviews();
     onOpenChange(nextOpen);
   }
@@ -281,7 +283,10 @@ export function VehicleFormDialog({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    if (savingRef.current) return;
+
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const input: CatalogVehicleInput = {
       internalCode: String(data.get('internalCode') || '').trim(),
       licensePlate: String(data.get('licensePlate') || '').trim(),
@@ -304,6 +309,7 @@ export function VehicleFormDialog({
       location: String(data.get('location') || '').trim(),
     };
 
+    savingRef.current = true;
     setSaving(true);
     try {
       const itemId = await saveVehicle(input);
@@ -331,9 +337,25 @@ export function VehicleFormDialog({
         }
       }
       if (orderedImageIds.length > 0) {
-        await reorderCatalogImages(itemId, orderedImageIds);
+        try {
+          await reorderCatalogImages(itemId, orderedImageIds);
+        } catch (error) {
+          imageWarnings.push(
+            error instanceof Error
+              ? `No se pudo ordenar la galería: ${error.message}`
+              : 'No se pudo ordenar la galería.'
+          );
+        }
       }
-      await onSaved();
+      try {
+        await onSaved();
+      } catch (error) {
+        console.error('[catalog] vehicle saved but refresh failed:', error);
+        toast.warning(
+          'El vehículo se guardó, pero no fue posible actualizar la lista.',
+          { description: 'Recarga la página para verlo.' }
+        );
+      }
       toast.success(
         vehicle
           ? 'Vehículo actualizado correctamente.'
@@ -349,10 +371,11 @@ export function VehicleFormDialog({
           }
         );
       }
-      event.currentTarget.reset();
+      form.reset();
       clearNewImagePreviews();
       setGallery([]);
       setLicensePlateVisible(false);
+      savingRef.current = false;
       onOpenChange(false);
     } catch (error) {
       toast.error(
@@ -361,6 +384,7 @@ export function VehicleFormDialog({
           : 'No fue posible guardar el vehículo.'
       );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }

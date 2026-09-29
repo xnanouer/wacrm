@@ -8,6 +8,7 @@ import {
 } from '@/lib/rate-limit';
 import { renderQuotationArtifacts } from '@/lib/quotes/render-document';
 import { buildQuotationDocumentData, loadQuotation } from '@/lib/quotes/server';
+import { internalRenderUrl } from '@/lib/documents/internal-render-url';
 import { isUuid } from '@/lib/validation/uuid';
 
 export const runtime = 'nodejs';
@@ -60,7 +61,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     const versionNumber = Number(reserved.version_number);
     let artifacts: Awaited<ReturnType<typeof renderQuotationArtifacts>>;
     try {
-      const renderUrl = new URL(`/quote-render/${id}`, request.url);
+      const renderUrl = internalRenderUrl(`/quote-render/${id}`);
       renderUrl.searchParams.set('version', String(versionNumber));
       artifacts = await renderQuotationArtifacts({
         url: renderUrl.toString(),

@@ -150,6 +150,7 @@ export function CatalogView({
   const [reviewReason, setReviewReason] = useState('');
   const [reviewing, setReviewing] = useState(false);
   const inventoryRef = useRef<HTMLElement>(null);
+  const submittingVehiclesRef = useRef(new Set<string>());
 
   const makes = useMemo(
     () => [...new Set(vehicles.map((vehicle) => vehicle.make))].sort(),
@@ -260,25 +261,54 @@ export function CatalogView({
   }
 
   async function handleSubmitForApproval(vehicle: CatalogVehicle) {
+    if (submittingVehiclesRef.current.has(vehicle.id)) return;
+    submittingVehiclesRef.current.add(vehicle.id);
     setSubmittingVehicleId(vehicle.id);
-    const response = await fetch(`/api/catalog/${vehicle.id}/submit`, {
-      method: 'POST',
-    });
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    setSubmittingVehicleId(null);
+    try {
+      const response = await fetch(`/api/catalog/${vehicle.id}/submit`, {
+        method: 'POST',
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        alreadySubmitted?: boolean;
+      } | null;
 
-    if (!response.ok) {
-      toast.error(
-        payload?.error ?? 'No fue posible enviar el vehículo a aprobación.'
+      if (!response.ok) {
+        throw new Error(
+          payload?.error ?? 'No fue posible enviar el vehículo a aprobación.'
+        );
+      }
+
+      setSelectedVehicle(null);
+      toast.success(
+        payload?.alreadySubmitted
+          ? 'El vehículo ya estaba enviado a aprobación.'
+          : 'Vehículo enviado a aprobación.'
       );
-      return;
+      try {
+        await refreshCatalog();
+      } catch (error) {
+        console.error(
+          '[catalog] approval submitted but refresh failed:',
+          error
+        );
+        toast.warning(
+          'La solicitud quedó enviada, pero no fue posible actualizar la lista.',
+          { description: 'Recarga la página para ver su estado.' }
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'No fue posible enviar el vehículo a aprobación.'
+      );
+    } finally {
+      submittingVehiclesRef.current.delete(vehicle.id);
+      setSubmittingVehicleId((current) =>
+        current === vehicle.id ? null : current
+      );
     }
-
-    await refreshCatalog();
-    setSelectedVehicle(null);
-    toast.success('Vehículo enviado a aprobación.');
   }
 
   function openReview(vehicle: CatalogVehicle, decision: ReviewDecision) {

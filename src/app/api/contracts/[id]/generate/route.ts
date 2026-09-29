@@ -7,6 +7,7 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import { renderContractPdf } from '@/lib/contracts/render-document';
+import { internalRenderUrl } from '@/lib/documents/internal-render-url';
 import {
   buildContractDocumentData,
   loadContract,
@@ -71,7 +72,7 @@ export async function POST(
       );
     versionId = reserved.id as string;
     const version = Number(reserved.version_number);
-    const renderUrl = new URL(`/contract-render/${id}`, request.url);
+    const renderUrl = internalRenderUrl(`/contract-render/${id}`);
     renderUrl.searchParams.set('version', String(version));
     let artifact: Awaited<ReturnType<typeof renderContractPdf>>;
     try {
