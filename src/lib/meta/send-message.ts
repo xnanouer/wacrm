@@ -24,6 +24,17 @@ interface SocialConversation {
   first_response_at: string | null;
 }
 
+const SOCIAL_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export function isSocialReplyWindowOpen(
+  lastCustomerMessageAt: string | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!lastCustomerMessageAt) return false;
+  const sentAt = Date.parse(lastCustomerMessageAt);
+  return Number.isFinite(sentAt) && now - sentAt < SOCIAL_REPLY_WINDOW_MS;
+}
+
 /**
  * Send a text or image reply through the Facebook Page or Instagram
  * professional account attached to an existing social conversation.
@@ -76,6 +87,31 @@ export async function sendSocialMessageToConversation(
     );
   }
   const conversation = data as SocialConversation;
+
+  // Nexora currently uses Meta's standard RESPONSE messaging path. It is
+  // valid only during the 24-hour customer-care window, so reject locally
+  // before creating a failed optimistic attempt or calling Meta.
+  const { data: lastCustomerMessage, error: lastCustomerMessageError } =
+    await db
+      .from('messages')
+      .select('created_at')
+      .eq('conversation_id', conversation.id)
+      .eq('sender_type', 'customer')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+  if (lastCustomerMessageError) {
+    throw new SocialSendError(
+      'No se pudo comprobar la ventana de respuesta de Meta.',
+      500
+    );
+  }
+  if (!isSocialReplyWindowOpen(lastCustomerMessage?.created_at)) {
+    throw new SocialSendError(
+      'La ventana de respuesta de 24 horas venció. El cliente debe escribir nuevamente para poder responder.',
+      409
+    );
+  }
 
   if (input.replyToMessageId) {
     const { data: parent } = await db
@@ -218,10 +254,18 @@ export async function sendSocialMessageToConversation(
     }
   } catch (sendError) {
     if (sendError instanceof SocialSendError) throw sendError;
-    const detail =
-      sendError instanceof MetaApiError
-        ? sendError.message
-        : 'Meta no pudo entregar el mensaje';
+    let detail = 'Meta no pudo entregar el mensaje';
+    if (sendError instanceof MetaApiError) {
+      if (sendError.code === 3) {
+        detail =
+          'La app de Meta aún no tiene acceso avanzado para enviar mensajes de Instagram a usuarios reales. Solicita acceso avanzado para instagram_manage_messages y vuelve a conectar la cuenta.';
+      } else if (sendError.code === 10) {
+        detail =
+          'La ventana de respuesta permitida por Meta venció. El cliente debe escribir nuevamente para poder responder.';
+      } else {
+        detail = sendError.message;
+      }
+    }
     throw new SocialSendError(`Error de Meta: ${detail}`, 502);
   }
 

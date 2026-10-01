@@ -94,7 +94,7 @@ interface MessageComposerProps {
   conversationId: string;
   departmentId?: string;
   sessionExpired: boolean;
-  onSend: (text: string, replyToId?: string) => void;
+  onSend: (text: string, replyToId?: string) => Promise<void>;
   onSendMedia: (payload: SendMediaPayload) => void;
   onOpenTemplates: () => void;
   replyTo?: ReplyDraft | null;
@@ -142,6 +142,11 @@ export function MessageComposer({
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // React state is not synchronous. A rapid Enter + click (or double click)
+  // can invoke the callback twice before `sending` reaches the next render.
+  // This ref closes that same-tick gap and remains locked until the actual
+  // network send resolves.
+  const sendInFlightRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,16 +265,24 @@ export function MessageComposer({
 
   const handleSend = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed || sending || sessionExpired) return;
+    if (
+      !trimmed ||
+      sending ||
+      sendInFlightRef.current ||
+      sessionExpired
+    )
+      return;
 
+    sendInFlightRef.current = true;
     setSending(true);
+    setText('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     try {
-      onSend(trimmed, replyTo?.id);
-      setText('');
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
+      await onSend(trimmed, replyTo?.id);
     } finally {
+      sendInFlightRef.current = false;
       setSending(false);
     }
   }, [text, sending, sessionExpired, onSend, replyTo?.id]);
@@ -642,17 +655,21 @@ export function MessageComposer({
       {!channelUnavailable && sessionExpired && (
         <div className="mb-2 flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2">
           <p className="text-xs text-amber-400">
-            24-hour session expired. Use a template to re-engage.
+            {textOnly
+              ? 'La ventana de 24 horas venció. El cliente debe escribir nuevamente para poder responder.'
+              : 'La ventana de 24 horas venció. Usa una plantilla para retomar la conversación.'}
           </p>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs text-amber-400 hover:text-amber-300"
-            onClick={onOpenTemplates}
-          >
-            <LayoutTemplate className="mr-1 h-3 w-3" />
-            Templates
-          </Button>
+          {!textOnly && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs text-amber-400 hover:text-amber-300"
+              onClick={onOpenTemplates}
+            >
+              <LayoutTemplate className="mr-1 h-3 w-3" />
+              Plantillas
+            </Button>
+          )}
         </div>
       )}
       {ticketLocked && !channelUnavailable && !sessionExpired && (
@@ -884,7 +901,9 @@ export function MessageComposer({
                 ? (channelUnavailableReason ??
                   'Read-only — viewers can browse but not reply')
                 : sessionExpired
-                  ? 'Session expired - use a template'
+                  ? textOnly
+                    ? 'Ventana de 24 horas vencida'
+                    : 'Ventana vencida: usa una plantilla'
                   : 'Escribe un mensaje o / para respuestas rápidas'
             }
             disabled={sessionExpired || readOnly}
