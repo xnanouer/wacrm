@@ -33,7 +33,7 @@ export async function GET(request: Request) {
         ? ctx.supabase
             .from('conversations')
             .select(
-              'id, contact_id, assigned_agent_id, contact:contacts(id, name, phone, email, rut, company)'
+              'id, contact_id, assigned_agent_id, contact:contacts!conversations_contact_id_fkey(id, name, phone, email, rut, company)'
             )
             .eq('account_id', ctx.accountId)
             .eq('id', conversationId)

@@ -7,7 +7,7 @@ import type { Conversation, Contact, Tag } from '@/types';
  * flattens them onto `contact.tags`.
  */
 export const CONVERSATION_SELECT =
-  '*, contact:contacts(*, contact_tags(tags(*))), department:departments!conversations_department_account_fkey(*), whatsapp_config:whatsapp_config!conversations_whatsapp_account_fkey(id, provider, connection_name, phone_number_id, display_name, display_phone), channel_connection:channel_connections!conversations_channel_connection_account_fkey(id, channel, display_name, status, metadata)';
+  '*, contact:contacts!conversations_contact_id_fkey(*, contact_tags(tags(*))), department:departments!conversations_department_account_fkey(*), whatsapp_config:whatsapp_config!conversations_whatsapp_account_fkey(id, provider, connection_name, phone_number_id, display_name, display_phone), channel_connection:channel_connections!conversations_channel_connection_account_fkey(id, channel, display_name, status, metadata)';
 
 /**
  * Meta Cloud API only permits free-form WhatsApp replies inside the

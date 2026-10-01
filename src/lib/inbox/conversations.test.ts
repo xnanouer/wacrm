@@ -42,7 +42,10 @@ const tag = (id: string, name = id) => ({
 });
 
 describe('CONVERSATION_SELECT', () => {
-  it('disambiguates the account-scoped department and WhatsApp relations', () => {
+  it('disambiguates the contact, department, and WhatsApp relations', () => {
+    expect(CONVERSATION_SELECT).toContain(
+      'contacts!conversations_contact_id_fkey'
+    );
     expect(CONVERSATION_SELECT).toContain(
       'departments!conversations_department_account_fkey'
     );

@@ -209,7 +209,7 @@ export async function sendMessageToConversation(
   // Conversation + contact, account-scoped.
   const { data: conversation, error: convError } = await db
     .from('conversations')
-    .select('*, contact:contacts(*)')
+    .select('*, contact:contacts!conversations_contact_id_fkey(*)')
     .eq('id', conversationId)
     .eq('account_id', accountId)
     .single();

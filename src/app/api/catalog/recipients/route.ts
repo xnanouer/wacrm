@@ -26,7 +26,7 @@ export async function GET() {
     const { data, error } = await ctx.supabase
       .from('conversations')
       .select(
-        'id, status, last_message_at, assigned_agent_id, contact:contacts(id, name, phone), whatsapp_config:whatsapp_config!conversations_whatsapp_account_fkey(id, connection_name, display_name, display_phone)'
+        'id, status, last_message_at, assigned_agent_id, contact:contacts!conversations_contact_id_fkey(id, name, phone), whatsapp_config:whatsapp_config!conversations_whatsapp_account_fkey(id, connection_name, display_name, display_phone)'
       )
       .eq('account_id', ctx.accountId)
       .eq('channel', 'whatsapp')
