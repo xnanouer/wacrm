@@ -37,6 +37,7 @@ import {
   ClipboardCheck,
   Eye,
   ReceiptText,
+  ScrollText,
 } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -270,9 +271,19 @@ export function ContactSidebar({
           full_name: 'Carolina Muñoz Rojas',
           rut: '17.456.789-2',
           phone: contact.phone || '+56 9 8765 4321',
+          email: 'carolina@example.com',
+          address: 'Av. Alemania 1234',
+          commune: 'Temuco',
           city: 'Temuco',
+          region: 'La Araucanía',
+          occupation: 'Administrativa',
+          company: 'Empresa de ejemplo',
+          monthly_income: '$1.200.000',
           vehicle_interest: 'Toyota RAV4 automática, año 2022 o superior',
+          vehicle_plate: null,
+          vehicle_price: '$18.000.000',
           down_payment: '$5.000.000',
+          payment_method: 'Crédito automotriz',
           income_proof: true,
           employment_type: 'Contrato indefinido',
           employment_tenure: '3 años y 4 meses',
@@ -291,9 +302,15 @@ export function ContactSidebar({
     ? [
         displayedLeadProfile.full_name,
         displayedLeadProfile.phone,
-        displayedLeadProfile.city,
+        displayedLeadProfile.email,
+        displayedLeadProfile.address,
+        displayedLeadProfile.commune || displayedLeadProfile.city,
+        displayedLeadProfile.region,
         displayedLeadProfile.vehicle_interest,
+        displayedLeadProfile.vehicle_plate,
+        displayedLeadProfile.vehicle_price,
         displayedLeadProfile.down_payment,
+        displayedLeadProfile.payment_method,
         financingNotApplicable ? true : displayedLeadProfile.rut,
         financingNotApplicable ? true : displayedLeadProfile.income_proof,
         financingNotApplicable
@@ -423,6 +440,18 @@ export function ContactSidebar({
             Ver cotizaciones del cliente
           </Link>
 
+          {canApplyTags && conversation ? (
+            <Link
+              href={`/contracts/new?conversationId=${conversation.id}&contactId=${contact.id}`}
+              className={buttonVariants({
+                className: 'w-full justify-start',
+              })}
+            >
+              <ScrollText className="size-4" />
+              Crear contrato con estos datos
+            </Link>
+          ) : null}
+
           <section className="border-border bg-background rounded-xl border p-3">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -473,12 +502,30 @@ export function ContactSidebar({
                     ['Nombre completo', displayedLeadProfile.full_name],
                     ['RUT', financingValue(displayedLeadProfile.rut)],
                     ['Teléfono', displayedLeadProfile.phone || contact.phone],
-                    ['Ciudad o comuna', displayedLeadProfile.city],
+                    ['Correo', displayedLeadProfile.email],
+                    ['Domicilio', displayedLeadProfile.address],
+                    [
+                      'Ciudad o comuna',
+                      displayedLeadProfile.commune || displayedLeadProfile.city,
+                    ],
+                    ['Región', displayedLeadProfile.region],
+                    [
+                      'Ocupación / empresa',
+                      [
+                        displayedLeadProfile.occupation,
+                        displayedLeadProfile.company,
+                      ]
+                        .filter(Boolean)
+                        .join(' · '),
+                    ],
                     [
                       'Vehículo que busca',
                       displayedLeadProfile.vehicle_interest,
                     ],
                     ['Pie disponible', displayedLeadProfile.down_payment],
+                    ['Patente', displayedLeadProfile.vehicle_plate],
+                    ['Precio vehículo', displayedLeadProfile.vehicle_price],
+                    ['Forma de pago', displayedLeadProfile.payment_method],
                     [
                       'Acredita ingresos',
                       financingValue(displayedLeadProfile.income_proof),

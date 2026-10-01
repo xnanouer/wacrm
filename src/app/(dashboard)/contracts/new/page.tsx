@@ -30,23 +30,37 @@ export const metadata: Metadata = { title: 'Nuevo contrato | Nexora' };
 export default async function NewContractPage({
   searchParams,
 }: {
-  searchParams: Promise<{ template?: string }>;
+  searchParams: Promise<{
+    template?: string;
+    conversationId?: string;
+    contactId?: string;
+  }>;
 }) {
   await requireRole('agent');
-  const { template } = await searchParams;
+  const { template, conversationId, contactId } = await searchParams;
+  const flow = {
+    initialConversationId: conversationId ?? null,
+    initialContactId: contactId ?? null,
+  };
   if (template === PAYMENT_COMMITMENT_TEMPLATE.key)
-    return <PaymentCommitmentEditor />;
-  if (template === VEHICLE_CONSIGNMENT_TEMPLATE.key) return <ContractEditor />;
+    return <PaymentCommitmentEditor {...flow} />;
+  if (template === VEHICLE_CONSIGNMENT_TEMPLATE.key)
+    return <ContractEditor {...flow} />;
   const transactionTemplate = VEHICLE_TRANSACTION_TEMPLATES.find(
     (item) => item.key === template
   );
   if (transactionTemplate)
-    return <VehicleTransactionEditor templateKey={transactionTemplate.key} />;
+    return (
+      <VehicleTransactionEditor
+        templateKey={transactionTemplate.key}
+        {...flow}
+      />
+    );
   const legalTemplate = VEHICLE_LEGAL_TEMPLATES.find(
     (item) => item.key === template
   );
   if (legalTemplate)
-    return <VehicleLegalEditor templateKey={legalTemplate.key} />;
+    return <VehicleLegalEditor templateKey={legalTemplate.key} {...flow} />;
   const transactionIcons = [
     Landmark,
     UsersRound,
@@ -77,6 +91,9 @@ export default async function NewContractPage({
       <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
         {templates.map((item) => {
           const Icon = item.icon;
+          const nextParams = new URLSearchParams({ template: item.key });
+          if (conversationId) nextParams.set('conversationId', conversationId);
+          if (contactId) nextParams.set('contactId', contactId);
           return (
             <article
               key={item.key}
@@ -90,7 +107,7 @@ export default async function NewContractPage({
                 {item.description}
               </p>
               <Link
-                href={`/contracts/new?template=${item.key}`}
+                href={`/contracts/new?${nextParams.toString()}`}
                 className={`${buttonVariants()} mt-6`}
               >
                 Usar este modelo

@@ -15,11 +15,19 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { ContractLivePreview } from '@/components/contracts/contract-live-preview';
+import {
+  ContactPrefillPicker,
+  ContractPrefillNotice,
+} from '@/components/contracts/contact-prefill-picker';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { AccountRole } from '@/lib/auth/roles';
 import { hasMinRole } from '@/lib/auth/roles';
+import type {
+  ContractContactOption,
+  ContractContactPrefill,
+} from '@/lib/contracts/prefill';
 import type {
   CompanyContractSnapshot,
   ContractRecord,
@@ -28,14 +36,10 @@ import type {
 
 interface OptionsPayload {
   company: CompanyContractSnapshot;
-  contacts: {
-    id: string;
-    name: string | null;
-    phone: string;
-    email: string | null;
-    rut: string | null;
-  }[];
+  contacts: ContractContactOption[];
   members: { user_id: string; full_name: string; email: string }[];
+  selectedContactId: string | null;
+  selectedPrefill: ContractContactPrefill | null;
   currentUserId: string;
   currentRole: AccountRole;
 }
@@ -75,6 +79,27 @@ const blank = (): PaymentCommitmentInput => ({
   financedPaymentBusinessDays: 10,
   internalNotes: '',
 });
+
+function applyPrefill(
+  value: PaymentCommitmentInput,
+  prefill: ContractContactPrefill
+): PaymentCommitmentInput {
+  return {
+    ...value,
+    contactId: prefill.contactId,
+    conversationId: prefill.conversationId,
+    providerName: prefill.fullName,
+    providerRut: prefill.rut,
+    providerAddress: prefill.address,
+    providerCommune: prefill.commune,
+    providerCity: prefill.city,
+    providerRegion: prefill.region,
+    providerPhone: prefill.phone,
+    providerEmail: prefill.email,
+    vehiclePlate: prefill.vehiclePlate.toUpperCase(),
+    takePrice: prefill.vehiclePrice ?? value.takePrice,
+  };
+}
 
 function Field({
   label,
@@ -123,20 +148,33 @@ function Section({
   );
 }
 
-export function PaymentCommitmentEditor() {
+export function PaymentCommitmentEditor({
+  initialConversationId,
+  initialContactId,
+}: {
+  initialConversationId: string | null;
+  initialContactId: string | null;
+}) {
   const router = useRouter();
   const [options, setOptions] = useState<OptionsPayload | null>(null);
   const [input, setInput] = useState<PaymentCommitmentInput>(blank);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activePrefill, setActivePrefill] =
+    useState<ContractContactPrefill | null>(null);
   const update = <K extends keyof PaymentCommitmentInput>(
     key: K,
     value: PaymentCommitmentInput[K]
   ) => setInput((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
-    fetch('/api/contracts/options', { cache: 'no-store' })
+    const params = new URLSearchParams();
+    if (initialConversationId)
+      params.set('conversationId', initialConversationId);
+    if (initialContactId) params.set('contactId', initialContactId);
+    const query = params.size ? `?${params.toString()}` : '';
+    fetch(`/api/contracts/options${query}`, { cache: 'no-store' })
       .then(async (response) => {
         const payload = (await response.json()) as OptionsPayload & {
           error?: string;
@@ -147,21 +185,27 @@ export function PaymentCommitmentEditor() {
       })
       .then((payload) => {
         setOptions(payload);
+        setActivePrefill(payload.selectedPrefill);
         const current = payload.members.find(
           (member) => member.user_id === payload.currentUserId
         );
-        setInput((value) => ({
-          ...value,
-          executiveUserId: current?.user_id ?? null,
-          executiveName: current?.full_name ?? '',
-          executiveEmail: current?.email ?? '',
-          branchName: payload.company.defaultBranchName,
-          branchAddress:
-            payload.company.defaultBranchAddress ||
-            payload.company.legalAddress,
-          providerCity: payload.company.city,
-          providerRegion: payload.company.region,
-        }));
+        setInput((value) => {
+          const base = {
+            ...value,
+            executiveUserId: current?.user_id ?? null,
+            executiveName: current?.full_name ?? '',
+            executiveEmail: current?.email ?? '',
+            branchName: payload.company.defaultBranchName,
+            branchAddress:
+              payload.company.defaultBranchAddress ||
+              payload.company.legalAddress,
+            providerCity: payload.company.city,
+            providerRegion: payload.company.region,
+          };
+          return payload.selectedPrefill
+            ? applyPrefill(base, payload.selectedPrefill)
+            : base;
+        });
       })
       .catch((error) =>
         toast.error(
@@ -169,18 +213,16 @@ export function PaymentCommitmentEditor() {
         )
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [initialContactId, initialConversationId]);
 
   function chooseContact(id: string) {
     const contact = options?.contacts.find((item) => item.id === id);
-    setInput((value) => ({
-      ...value,
-      contactId: contact?.id ?? null,
-      providerName: contact?.name ?? '',
-      providerRut: contact?.rut ?? '',
-      providerPhone: contact?.phone ?? '',
-      providerEmail: contact?.email ?? '',
-    }));
+    setActivePrefill(contact?.prefill ?? null);
+    setInput((value) =>
+      contact
+        ? applyPrefill(value, contact.prefill)
+        : { ...value, contactId: null, conversationId: null }
+    );
   }
   function chooseExecutive(id: string) {
     const member = options?.members.find((item) => item.user_id === id);
@@ -289,18 +331,11 @@ export function PaymentCommitmentEditor() {
           >
             <div className={grid}>
               <Field label="Contacto de Nexora">
-                <select
+                <ContactPrefillPicker
+                  contacts={options?.contacts ?? []}
                   value={input.contactId ?? ''}
-                  onChange={(e) => chooseContact(e.target.value)}
-                  className="border-input bg-background h-11 w-full rounded-xl border px-3 text-sm"
-                >
-                  <option value="">Seleccionar contacto</option>
-                  {options?.contacts.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
-                      {contact.name || contact.phone}
-                    </option>
-                  ))}
-                </select>
+                  onChange={chooseContact}
+                />
               </Field>
               <Field label="Fecha" error={errors.issueDate}>
                 <Input
@@ -309,6 +344,7 @@ export function PaymentCommitmentEditor() {
                   onChange={(e) => update('issueDate', e.target.value)}
                 />
               </Field>
+              <ContractPrefillNotice prefill={activePrefill} />
               <Field label="Nombre completo" error={errors.providerName}>
                 <Input
                   value={input.providerName}

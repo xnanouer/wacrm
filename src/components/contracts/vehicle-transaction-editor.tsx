@@ -15,12 +15,20 @@ import {
 import { toast } from 'sonner';
 
 import { ContractLivePreview } from '@/components/contracts/contract-live-preview';
+import {
+  ContactPrefillPicker,
+  ContractPrefillNotice,
+} from '@/components/contracts/contact-prefill-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { AccountRole } from '@/lib/auth/roles';
 import { hasMinRole } from '@/lib/auth/roles';
+import type {
+  ContractContactOption,
+  ContractContactPrefill,
+} from '@/lib/contracts/prefill';
 import {
   VEHICLE_TRANSACTION_TEMPLATES,
   type CompanyContractSnapshot,
@@ -29,13 +37,6 @@ import {
   type VehicleTransactionTemplateKey,
 } from '@/lib/contracts/types';
 
-interface ContactOption {
-  id: string;
-  name: string | null;
-  phone: string;
-  email: string | null;
-  rut: string | null;
-}
 interface MemberOption {
   user_id: string;
   full_name: string;
@@ -43,8 +44,10 @@ interface MemberOption {
 }
 interface OptionsPayload {
   company: CompanyContractSnapshot;
-  contacts: ContactOption[];
+  contacts: ContractContactOption[];
   members: MemberOption[];
+  selectedContactId: string | null;
+  selectedPrefill: ContractContactPrefill | null;
   currentUserId: string;
   currentRole: AccountRole;
 }
@@ -122,6 +125,49 @@ function blank(): VehicleTransactionInput {
   };
 }
 
+function applyBuyerPrefill(
+  value: VehicleTransactionInput,
+  prefill: ContractContactPrefill
+): VehicleTransactionInput {
+  const price = prefill.vehiclePrice ?? value.totalPrice;
+  const downPayment = prefill.downPayment ?? value.cashAmount;
+  return {
+    ...value,
+    contactId: prefill.contactId,
+    conversationId: prefill.conversationId,
+    buyerName: prefill.fullName,
+    buyerRut: prefill.rut,
+    buyerAddress: prefill.address,
+    buyerCity: prefill.commune || prefill.city,
+    buyerPhone: prefill.phone,
+    vehiclePlate: prefill.vehiclePlate.toUpperCase(),
+    totalPrice: price,
+    cashAmount:
+      prefill.financingRequested === false && price > 0 ? price : downPayment,
+    financedAmount:
+      prefill.financingRequested === true && price > 0
+        ? Math.max(price - downPayment, 0)
+        : value.financedAmount,
+    reservationPaymentMethod:
+      prefill.paymentMethod || value.reservationPaymentMethod,
+  };
+}
+
+function applySellerPrefill(
+  value: VehicleTransactionInput,
+  prefill: ContractContactPrefill
+): VehicleTransactionInput {
+  return {
+    ...value,
+    sellerName: prefill.fullName,
+    sellerRut: prefill.rut,
+    sellerAddress: prefill.address,
+    sellerCity: prefill.commune || prefill.city,
+    sellerPhone: prefill.phone,
+    vehiclePlate: prefill.vehiclePlate.toUpperCase() || value.vehiclePlate,
+  };
+}
+
 function Field({
   label,
   error,
@@ -171,8 +217,12 @@ function Section({
 
 export function VehicleTransactionEditor({
   templateKey,
+  initialConversationId,
+  initialContactId,
 }: {
   templateKey: VehicleTransactionTemplateKey;
+  initialConversationId: string | null;
+  initialContactId: string | null;
 }) {
   const router = useRouter();
   const template = VEHICLE_TRANSACTION_TEMPLATES.find(
@@ -183,6 +233,8 @@ export function VehicleTransactionEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activePrefill, setActivePrefill] =
+    useState<ContractContactPrefill | null>(null);
   const reservation = templateKey === 'vehicle_reservation_v1';
   const companySeller = templateKey === 'vehicle_sale_company_v1';
   const secondBuyer = templateKey === 'vehicle_sale_civil_union_v1';
@@ -194,7 +246,12 @@ export function VehicleTransactionEditor({
   ) => setInput((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
-    fetch('/api/contracts/options', { cache: 'no-store' })
+    const params = new URLSearchParams();
+    if (initialConversationId)
+      params.set('conversationId', initialConversationId);
+    if (initialContactId) params.set('contactId', initialContactId);
+    const query = params.size ? `?${params.toString()}` : '';
+    fetch(`/api/contracts/options${query}`, { cache: 'no-store' })
       .then(async (response) => {
         const payload = (await response.json()) as OptionsPayload & {
           error?: string;
@@ -205,20 +262,26 @@ export function VehicleTransactionEditor({
       })
       .then((payload) => {
         setOptions(payload);
+        setActivePrefill(payload.selectedPrefill);
         const current = payload.members.find(
           (member) => member.user_id === payload.currentUserId
         );
-        setInput((value) => ({
-          ...value,
-          issuePlace: payload.company.city,
-          sellerCity: payload.company.city,
-          buyerCity: payload.company.city,
-          executiveUserId: current?.user_id ?? null,
-          executiveName: current?.full_name ?? '',
-          executiveEmail: current?.email ?? '',
-          amendmentAttorneyName: payload.company.legalRepresentativeName,
-          amendmentAttorneyRut: payload.company.legalRepresentativeTaxId,
-        }));
+        setInput((value) => {
+          const base = {
+            ...value,
+            issuePlace: payload.company.city,
+            sellerCity: payload.company.city,
+            buyerCity: payload.company.city,
+            executiveUserId: current?.user_id ?? null,
+            executiveName: current?.full_name ?? '',
+            executiveEmail: current?.email ?? '',
+            amendmentAttorneyName: payload.company.legalRepresentativeName,
+            amendmentAttorneyRut: payload.company.legalRepresentativeTaxId,
+          };
+          return payload.selectedPrefill
+            ? applyBuyerPrefill(base, payload.selectedPrefill)
+            : base;
+        });
       })
       .catch((error) =>
         toast.error(
@@ -226,25 +289,22 @@ export function VehicleTransactionEditor({
         )
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [initialContactId, initialConversationId]);
 
   function chooseContact(id: string, party: 'buyer' | 'seller') {
     const contact = options?.contacts.find((item) => item.id === id);
-    if (party === 'buyer')
-      setInput((value) => ({
-        ...value,
-        contactId: contact?.id ?? null,
-        buyerName: contact?.name ?? '',
-        buyerRut: contact?.rut ?? '',
-        buyerPhone: contact?.phone ?? '',
-      }));
-    else
-      setInput((value) => ({
-        ...value,
-        sellerName: contact?.name ?? '',
-        sellerRut: contact?.rut ?? '',
-        sellerPhone: contact?.phone ?? '',
-      }));
+    if (party === 'buyer') {
+      setActivePrefill(contact?.prefill ?? null);
+      setInput((value) =>
+        contact
+          ? applyBuyerPrefill(value, contact.prefill)
+          : { ...value, contactId: null, conversationId: null }
+      );
+    } else {
+      setInput((value) =>
+        contact ? applySellerPrefill(value, contact.prefill) : value
+      );
+    }
   }
   function chooseExecutive(id: string) {
     const member = options?.members.find((item) => item.user_id === id);
@@ -365,17 +425,11 @@ export function VehicleTransactionEditor({
             >
               <div className={grid}>
                 <Field label="Autocompletar desde contacto">
-                  <select
-                    onChange={(e) => chooseContact(e.target.value, 'seller')}
-                    className="border-input bg-background h-11 w-full rounded-xl border px-3 text-sm"
-                  >
-                    <option value="">Seleccionar contacto</option>
-                    {options?.contacts.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name || item.phone}
-                      </option>
-                    ))}
-                  </select>
+                  <ContactPrefillPicker
+                    contacts={options?.contacts ?? []}
+                    value={null}
+                    onChange={(id) => chooseContact(id, 'seller')}
+                  />
                 </Field>
                 <Field label="Nombre" error={errors.sellerName}>
                   <Input
@@ -469,18 +523,11 @@ export function VehicleTransactionEditor({
           >
             <div className={grid}>
               <Field label="Contacto de Nexora">
-                <select
+                <ContactPrefillPicker
+                  contacts={options?.contacts ?? []}
                   value={input.contactId ?? ''}
-                  onChange={(e) => chooseContact(e.target.value, 'buyer')}
-                  className="border-input bg-background h-11 w-full rounded-xl border px-3 text-sm"
-                >
-                  <option value="">Seleccionar contacto</option>
-                  {options?.contacts.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name || item.phone}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(id) => chooseContact(id, 'buyer')}
+                />
               </Field>
               <Field label="Nombre" error={errors.buyerName}>
                 <Input
@@ -488,6 +535,7 @@ export function VehicleTransactionEditor({
                   onChange={(e) => update('buyerName', e.target.value)}
                 />
               </Field>
+              <ContractPrefillNotice prefill={activePrefill} />
               <Field label="RUT" error={errors.buyerRut}>
                 <Input
                   value={input.buyerRut}

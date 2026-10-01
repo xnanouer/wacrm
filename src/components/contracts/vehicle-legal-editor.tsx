@@ -16,12 +16,20 @@ import {
 import { toast } from 'sonner';
 
 import { ContractLivePreview } from '@/components/contracts/contract-live-preview';
+import {
+  ContactPrefillPicker,
+  ContractPrefillNotice,
+} from '@/components/contracts/contact-prefill-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { AccountRole } from '@/lib/auth/roles';
 import { hasMinRole } from '@/lib/auth/roles';
+import type {
+  ContractContactOption,
+  ContractContactPrefill,
+} from '@/lib/contracts/prefill';
 import {
   VEHICLE_LEGAL_TEMPLATES,
   type CompanyContractSnapshot,
@@ -31,13 +39,6 @@ import {
   type VehicleLegalVehicle,
 } from '@/lib/contracts/types';
 
-interface ContactOption {
-  id: string;
-  name: string | null;
-  phone: string;
-  email: string | null;
-  rut: string | null;
-}
 interface MemberOption {
   user_id: string;
   full_name: string;
@@ -45,8 +46,10 @@ interface MemberOption {
 }
 interface OptionsPayload {
   company: CompanyContractSnapshot;
-  contacts: ContactOption[];
+  contacts: ContractContactOption[];
   members: MemberOption[];
+  selectedContactId: string | null;
+  selectedPrefill: ContractContactPrefill | null;
   currentUserId: string;
   currentRole: AccountRole;
 }
@@ -94,6 +97,27 @@ function blank(): VehicleLegalInput {
     powerValidityMonths: 12,
     vehicles: [emptyVehicle()],
     internalNotes: '',
+  };
+}
+
+function applyPrefill(
+  value: VehicleLegalInput,
+  prefill: ContractContactPrefill
+): VehicleLegalInput {
+  return {
+    ...value,
+    contactId: prefill.contactId,
+    conversationId: prefill.conversationId,
+    declarantName: prefill.fullName,
+    declarantRut: prefill.rut,
+    declarantAddress: prefill.address,
+    declarantCity: prefill.commune || prefill.city,
+    declarantPhone: prefill.phone,
+    vehicles: value.vehicles.map((vehicle, index) =>
+      index === 0 && prefill.vehiclePlate
+        ? { ...vehicle, plate: prefill.vehiclePlate.toUpperCase() }
+        : vehicle
+    ),
   };
 }
 
@@ -146,8 +170,12 @@ function Section({
 
 export function VehicleLegalEditor({
   templateKey,
+  initialConversationId,
+  initialContactId,
 }: {
   templateKey: VehicleLegalTemplateKey;
+  initialConversationId: string | null;
+  initialContactId: string | null;
 }) {
   const router = useRouter();
   const template = VEHICLE_LEGAL_TEMPLATES.find(
@@ -159,13 +187,20 @@ export function VehicleLegalEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activePrefill, setActivePrefill] =
+    useState<ContractContactPrefill | null>(null);
   const update = <K extends keyof VehicleLegalInput>(
     key: K,
     value: VehicleLegalInput[K]
   ) => setInput((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
-    fetch('/api/contracts/options', { cache: 'no-store' })
+    const params = new URLSearchParams();
+    if (initialConversationId)
+      params.set('conversationId', initialConversationId);
+    if (initialContactId) params.set('contactId', initialContactId);
+    const query = params.size ? `?${params.toString()}` : '';
+    fetch(`/api/contracts/options${query}`, { cache: 'no-store' })
       .then(async (response) => {
         const payload = (await response.json()) as OptionsPayload & {
           error?: string;
@@ -176,18 +211,24 @@ export function VehicleLegalEditor({
       })
       .then((payload) => {
         setOptions(payload);
+        setActivePrefill(payload.selectedPrefill);
         const current = payload.members.find(
           (member) => member.user_id === payload.currentUserId
         );
-        setInput((value) => ({
-          ...value,
-          issuePlace: payload.company.city,
-          declarantCity: payload.company.city,
-          representativeCity: payload.company.city,
-          executiveUserId: current?.user_id ?? null,
-          executiveName: current?.full_name ?? '',
-          executiveEmail: current?.email ?? '',
-        }));
+        setInput((value) => {
+          const base = {
+            ...value,
+            issuePlace: payload.company.city,
+            declarantCity: payload.company.city,
+            representativeCity: payload.company.city,
+            executiveUserId: current?.user_id ?? null,
+            executiveName: current?.full_name ?? '',
+            executiveEmail: current?.email ?? '',
+          };
+          return payload.selectedPrefill
+            ? applyPrefill(base, payload.selectedPrefill)
+            : base;
+        });
       })
       .catch((error) =>
         toast.error(
@@ -195,17 +236,16 @@ export function VehicleLegalEditor({
         )
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [initialContactId, initialConversationId]);
 
   function chooseContact(id: string) {
     const contact = options?.contacts.find((item) => item.id === id);
-    setInput((value) => ({
-      ...value,
-      contactId: contact?.id ?? null,
-      declarantName: contact?.name ?? '',
-      declarantRut: contact?.rut ?? '',
-      declarantPhone: contact?.phone ?? '',
-    }));
+    setActivePrefill(contact?.prefill ?? null);
+    setInput((value) =>
+      contact
+        ? applyPrefill(value, contact.prefill)
+        : { ...value, contactId: null, conversationId: null }
+    );
   }
 
   function chooseExecutive(id: string) {
@@ -359,18 +399,13 @@ export function VehicleLegalEditor({
           >
             <div className={grid}>
               <Field label="Autocompletar desde contacto">
-                <select
-                  onChange={(event) => chooseContact(event.target.value)}
-                  className="border-input bg-background h-11 w-full rounded-xl border px-3 text-sm"
-                >
-                  <option value="">Seleccionar contacto</option>
-                  {options?.contacts.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
-                      {contact.name || contact.phone}
-                    </option>
-                  ))}
-                </select>
+                <ContactPrefillPicker
+                  contacts={options?.contacts ?? []}
+                  value={input.contactId ?? ''}
+                  onChange={chooseContact}
+                />
               </Field>
+              <ContractPrefillNotice prefill={activePrefill} />
               <Field label="Nombre completo" error={errors.declarantName}>
                 <Input
                   value={input.declarantName}

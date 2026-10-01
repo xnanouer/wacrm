@@ -4,7 +4,7 @@ import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
 import { isUuid } from '@/lib/validation/uuid';
 
 const PROFILE_COLUMNS =
-  'id, account_id, conversation_id, contact_id, full_name, rut, phone, city, vehicle_interest, down_payment, income_proof, employment_type, employment_tenure, has_dicom, trade_in, trade_in_vehicle, purchase_timeline, financing_requested, captured_by_ai, updated_at';
+  'id, account_id, conversation_id, contact_id, full_name, rut, phone, email, address, commune, city, region, occupation, company, monthly_income, vehicle_interest, vehicle_plate, vehicle_price, down_payment, payment_method, income_proof, employment_type, employment_tenure, has_dicom, trade_in, trade_in_vehicle, purchase_timeline, financing_requested, captured_by_ai, updated_at';
 
 export async function GET(
   _request: Request,

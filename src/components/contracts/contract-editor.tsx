@@ -16,24 +16,24 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { ContractLivePreview } from '@/components/contracts/contract-live-preview';
+import {
+  ContactPrefillPicker,
+  ContractPrefillNotice,
+} from '@/components/contracts/contact-prefill-picker';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { AccountRole } from '@/lib/auth/roles';
 import { hasMinRole } from '@/lib/auth/roles';
 import type {
+  ContractContactOption,
+  ContractContactPrefill,
+} from '@/lib/contracts/prefill';
+import type {
   CompanyContractSnapshot,
   ContractRecord,
   VehicleConsignmentInput,
 } from '@/lib/contracts/types';
-
-interface ContactOption {
-  id: string;
-  name: string | null;
-  phone: string;
-  email: string | null;
-  rut: string | null;
-}
 
 interface MemberOption {
   user_id: string;
@@ -43,8 +43,10 @@ interface MemberOption {
 
 interface OptionsPayload {
   company: CompanyContractSnapshot;
-  contacts: ContactOption[];
+  contacts: ContractContactOption[];
   members: MemberOption[];
+  selectedContactId: string | null;
+  selectedPrefill: ContractContactPrefill | null;
   currentUserId: string;
   currentRole: AccountRole;
 }
@@ -103,6 +105,25 @@ function blank(): VehicleConsignmentInput {
     financedPaymentTerms:
       '6 a 8 días hábiles desde la obtención de la firma por ambas partes.',
     internalNotes: '',
+  };
+}
+
+function applyPrefill(
+  value: VehicleConsignmentInput,
+  prefill: ContractContactPrefill
+): VehicleConsignmentInput {
+  return {
+    ...value,
+    contactId: prefill.contactId,
+    conversationId: prefill.conversationId,
+    consignorName: prefill.fullName,
+    consignorRut: prefill.rut,
+    consignorAddress: prefill.address,
+    consignorCity: prefill.commune || prefill.city,
+    consignorPhone: prefill.phone,
+    consignorEmail: prefill.email,
+    vehiclePlate: prefill.vehiclePlate.toUpperCase(),
+    consignmentValue: prefill.vehiclePrice ?? value.consignmentValue,
   };
 }
 
@@ -180,13 +201,21 @@ function YesNo({
   );
 }
 
-export function ContractEditor() {
+export function ContractEditor({
+  initialConversationId,
+  initialContactId,
+}: {
+  initialConversationId: string | null;
+  initialContactId: string | null;
+}) {
   const router = useRouter();
   const [options, setOptions] = useState<OptionsPayload | null>(null);
   const [input, setInput] = useState<VehicleConsignmentInput>(blank);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activePrefill, setActivePrefill] =
+    useState<ContractContactPrefill | null>(null);
 
   const update = <K extends keyof VehicleConsignmentInput>(
     key: K,
@@ -194,7 +223,12 @@ export function ContractEditor() {
   ) => setInput((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
-    fetch('/api/contracts/options', { cache: 'no-store' })
+    const params = new URLSearchParams();
+    if (initialConversationId)
+      params.set('conversationId', initialConversationId);
+    if (initialContactId) params.set('contactId', initialContactId);
+    const query = params.size ? `?${params.toString()}` : '';
+    fetch(`/api/contracts/options${query}`, { cache: 'no-store' })
       .then(async (response) => {
         const payload = (await response.json()) as OptionsPayload & {
           error?: string;
@@ -205,20 +239,26 @@ export function ContractEditor() {
       })
       .then((payload) => {
         setOptions(payload);
+        setActivePrefill(payload.selectedPrefill);
         const current = payload.members.find(
           (member) => member.user_id === payload.currentUserId
         );
-        setInput((value) => ({
-          ...value,
-          executiveUserId: current?.user_id ?? null,
-          executiveName: current?.full_name ?? '',
-          executiveEmail: current?.email ?? '',
-          branchName: payload.company.defaultBranchName,
-          branchAddress:
-            payload.company.defaultBranchAddress ||
-            payload.company.legalAddress,
-          consignorCity: payload.company.city,
-        }));
+        setInput((value) => {
+          const base = {
+            ...value,
+            executiveUserId: current?.user_id ?? null,
+            executiveName: current?.full_name ?? '',
+            executiveEmail: current?.email ?? '',
+            branchName: payload.company.defaultBranchName,
+            branchAddress:
+              payload.company.defaultBranchAddress ||
+              payload.company.legalAddress,
+            consignorCity: payload.company.city,
+          };
+          return payload.selectedPrefill
+            ? applyPrefill(base, payload.selectedPrefill)
+            : base;
+        });
       })
       .catch((error) =>
         toast.error(
@@ -226,18 +266,16 @@ export function ContractEditor() {
         )
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [initialContactId, initialConversationId]);
 
   function chooseContact(id: string) {
     const contact = options?.contacts.find((item) => item.id === id);
-    setInput((value) => ({
-      ...value,
-      contactId: contact?.id ?? null,
-      consignorName: contact?.name ?? '',
-      consignorRut: contact?.rut ?? '',
-      consignorPhone: contact?.phone ?? '',
-      consignorEmail: contact?.email ?? '',
-    }));
+    setActivePrefill(contact?.prefill ?? null);
+    setInput((value) =>
+      contact
+        ? applyPrefill(value, contact.prefill)
+        : { ...value, contactId: null, conversationId: null }
+    );
   }
 
   function chooseExecutive(id: string) {
@@ -356,18 +394,11 @@ export function ContractEditor() {
           >
             <div className="mb-5 grid gap-4 sm:grid-cols-2">
               <Field label="Contacto de Nexora">
-                <select
+                <ContactPrefillPicker
+                  contacts={options?.contacts ?? []}
                   value={input.contactId ?? ''}
-                  onChange={(e) => chooseContact(e.target.value)}
-                  className="border-input bg-background h-11 w-full rounded-xl border px-3 text-sm"
-                >
-                  <option value="">Seleccionar contacto</option>
-                  {options?.contacts.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
-                      {contact.name || contact.phone}
-                    </option>
-                  ))}
-                </select>
+                  onChange={chooseContact}
+                />
               </Field>
               <Field label="Fecha del contrato" error={errors.issueDate}>
                 <Input
@@ -376,6 +407,7 @@ export function ContractEditor() {
                   onChange={(e) => update('issueDate', e.target.value)}
                 />
               </Field>
+              <ContractPrefillNotice prefill={activePrefill} />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Nombre completo" error={errors.consignorName}>
