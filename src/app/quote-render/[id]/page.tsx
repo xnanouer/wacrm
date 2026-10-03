@@ -29,13 +29,5 @@ export default async function QuotationRenderPage({
     (item) => item.versionNumber === versionNumber
   );
   if (!version || version.generationStatus === 'failed') notFound();
-  return (
-    <QuotationDocument
-      data={version.snapshot}
-      logoSrc={
-        version.snapshot.settings.logoUrl ||
-        '/brand/nexora-transparent-lockup.png'
-      }
-    />
-  );
+  return <QuotationDocument data={version.snapshot} />;
 }

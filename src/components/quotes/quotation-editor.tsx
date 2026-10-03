@@ -627,13 +627,15 @@ export function QuotationEditor({
                   }
                 />
               </Field>
-              <Field label="Correo" error={errors.clientEmail}>
+              <Field label="Correo (opcional)" error={errors.clientEmail}>
                 <Input
                   type="email"
                   value={input.clientEmail}
                   onChange={(event) =>
                     update('clientEmail', event.target.value)
                   }
+                  placeholder="cliente@ejemplo.cl"
+                  autoComplete="email"
                 />
               </Field>
               <Field label="Ciudad o comuna">

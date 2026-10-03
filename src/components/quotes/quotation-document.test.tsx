@@ -80,6 +80,7 @@ function documentData(): QuotationDocumentData {
       companyEmail: null,
       companyAddress: null,
       logoUrl: null,
+      accountLogoUrl: null,
       primaryColor: '#6d28d9',
       accentColor: '#8b5cf6',
       showClientRut: false,
@@ -118,5 +119,29 @@ describe('QuotationDocument', () => {
     expect(html).not.toContain('12.345.678-5');
     expect(html).not.toContain('cliente@ejemplo.cl');
     expect(html).not.toContain('ABCD12');
+  });
+
+  it('co-brands the document with Nexora and the issuing company', () => {
+    const data = documentData();
+    data.settings.companyDisplayName = 'Salgado Automotriz';
+    data.settings.accountLogoUrl = 'https://example.com/salgado-logo.png';
+    const html = renderToStaticMarkup(
+      <QuotationDocument data={data} includeStyles={false} />
+    );
+
+    expect(html).toContain('/brand/nexora-transparent-lockup.png');
+    expect(html).toContain('https://example.com/salgado-logo.png');
+    expect(html).toContain('alt="Salgado Automotriz"');
+  });
+
+  it('uses the company name when the issuer has no logo', () => {
+    const data = documentData();
+    data.settings.companyDisplayName = 'Empresa sin logo';
+    const html = renderToStaticMarkup(
+      <QuotationDocument data={data} includeStyles={false} />
+    );
+
+    expect(html).toContain('/brand/nexora-transparent-lockup.png');
+    expect(html).toContain('<strong>Empresa sin logo</strong>');
   });
 });

@@ -7,9 +7,10 @@ import type { QuotationDocumentData } from '@/lib/quotes/types';
 
 interface QuotationDocumentProps {
   data: QuotationDocumentData;
-  logoSrc?: string;
   includeStyles?: boolean;
 }
+
+const NEXORA_LOGO_SRC = '/brand/nexora-transparent-lockup.png';
 
 function formatDate(value: string): string {
   const date = new Date(`${value.slice(0, 10)}T12:00:00`);
@@ -52,35 +53,41 @@ function SectionTitle({
 
 function Header({
   data,
-  logoSrc,
   compact = false,
-}: QuotationDocumentProps & { compact?: boolean }) {
+}: Pick<QuotationDocumentProps, 'data'> & { compact?: boolean }) {
   const { quotation, settings } = data;
-  if (compact) {
-    return (
-      <div className="quote-mini-header">
-        {logoSrc ? (
+  const companyLogoSrc = settings.logoUrl || settings.accountLogoUrl;
+  const brands = (
+    <div className="quote-brand-lockup">
+      {/* Plain img is required by the standalone PDF/PNG renderer. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        className="quote-nexora-logo"
+        src={NEXORA_LOGO_SRC}
+        alt="Nexora CRM"
+      />
+      <span className="quote-brand-divider" aria-hidden="true" />
+      <div className="quote-company-brand">
+        {companyLogoSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={logoSrc} alt={settings.companyDisplayName} />
+          <img src={companyLogoSrc} alt={settings.companyDisplayName} />
         ) : (
           <strong>{settings.companyDisplayName}</strong>
         )}
+      </div>
+    </div>
+  );
+  if (compact) {
+    return (
+      <div className="quote-mini-header">
+        {brands}
         <span className="quote-mini-number">{quotation.quoteNumber}</span>
       </div>
     );
   }
   return (
     <header className="quote-header">
-      <div className="quote-brand">
-        {logoSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={logoSrc} alt={settings.companyDisplayName} />
-        ) : (
-          <span className="quote-brand-fallback">
-            {settings.companyDisplayName}
-          </span>
-        )}
-      </div>
+      <div className="quote-brand">{brands}</div>
       <div className="quote-meta">
         <div className="quote-meta-row">
           <span className="quote-meta-icon">▣</span>
@@ -114,7 +121,6 @@ function Header({
 
 export function QuotationDocument({
   data,
-  logoSrc = '/brand/nexora-transparent-lockup.png',
   includeStyles = true,
 }: QuotationDocumentProps) {
   const { quotation, settings, installments } = data;
@@ -141,7 +147,7 @@ export function QuotationDocument({
     >
       {includeStyles && <style>{QUOTATION_DOCUMENT_CSS}</style>}
       <article className="quote-page">
-        <Header data={data} logoSrc={logoSrc} />
+        <Header data={data} />
         <main className="quote-body">
           <h1 className="quote-title">COTIZACIÓN VEHICULAR</h1>
           <div className="quote-subtitle">Documento referencial</div>
@@ -357,7 +363,7 @@ export function QuotationDocument({
       {extraInstallments.length > 0 && (
         <article className="quote-page">
           <div className="quote-continuation">
-            <Header data={data} logoSrc={logoSrc} compact />
+            <Header data={data} compact />
             <h2 className="quote-second-page-title">
               Opciones de financiamiento — continuación
             </h2>

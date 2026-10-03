@@ -100,7 +100,10 @@ export function quotationFromRow(
   };
 }
 
-export function settingsFromRow(row: Row): QuotationSettings {
+export function settingsFromRow(
+  row: Row,
+  accountLogoUrl: string | null = null
+): QuotationSettings {
   return {
     accountId: String(row.account_id),
     quotePrefix: String(row.quote_prefix),
@@ -114,6 +117,7 @@ export function settingsFromRow(row: Row): QuotationSettings {
     companyEmail: nullableText(row.company_email),
     companyAddress: nullableText(row.company_address),
     logoUrl: nullableText(row.logo_url),
+    accountLogoUrl,
     primaryColor: String(row.primary_color),
     accentColor: String(row.accent_color),
     showClientRut: Boolean(row.show_client_rut),
@@ -152,7 +156,20 @@ export async function loadQuotationSettings(
     error = result.error;
   }
   if (error || !data) throw new Error('quotation_settings_load_failed');
-  return settingsFromRow(data as Row);
+
+  // The general company logo is the automatic fallback for quotations. Keep
+  // the optional quotation-specific URL separate so changing the account logo
+  // continues to update future documents without copying URLs between forms.
+  const { data: accountBranding, error: brandingError } = await ctx.supabase
+    .from('accounts')
+    .select('logo_url')
+    .eq('id', ctx.accountId)
+    .maybeSingle();
+  if (brandingError) {
+    console.error('[quotes] account branding load failed:', brandingError);
+  }
+
+  return settingsFromRow(data as Row, nullableText(accountBranding?.logo_url));
 }
 
 export async function buildQuotationDocumentData(

@@ -113,14 +113,18 @@ export function QuotationSettingsForm({
               />
             </Setting>
           </div>
-          <Setting label="Logo (URL opcional)">
+          <Setting label="Logo alternativo para cotizaciones (URL opcional)">
             <Input
               value={settings.logoUrl ?? ''}
               onChange={(event) =>
                 update('logoUrl', event.target.value || null)
               }
-              placeholder="Usa el logo Nexora si lo dejas vacío"
+              placeholder="Usa automáticamente el logo general de la empresa"
             />
+            <p className="text-muted-foreground mt-2 text-xs">
+              Si lo dejas vacío, Nexora tomará el logo configurado en los datos
+              generales de esta empresa.
+            </p>
           </Setting>
           <div className="grid gap-4 sm:grid-cols-2">
             <Setting label="Color principal">

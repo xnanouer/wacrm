@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { loadQuotationSettings, settingsFromRow } from '@/lib/quotes/server';
+import { loadQuotationSettings } from '@/lib/quotes/server';
 import {
   isSafeRemoteAssetUrl,
   renderQuotationMessage,
@@ -126,7 +126,7 @@ export async function PATCH(request: Request) {
         { status: 500 }
       );
     }
-    return NextResponse.json({ settings: settingsFromRow(data) });
+    return NextResponse.json({ settings: await loadQuotationSettings(ctx) });
   } catch (error) {
     return toErrorResponse(error);
   }

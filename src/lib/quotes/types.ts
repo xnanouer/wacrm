@@ -33,7 +33,10 @@ export interface QuotationSettings {
   companyPhone: string | null;
   companyEmail: string | null;
   companyAddress: string | null;
+  /** Optional quotation-specific override configured by an administrator. */
   logoUrl: string | null;
+  /** General company logo; used when the quotation has no custom override. */
+  accountLogoUrl?: string | null;
   primaryColor: string;
   accentColor: string;
   showClientRut: boolean;

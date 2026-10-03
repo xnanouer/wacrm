@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -22,6 +22,16 @@ function vehiclePlaceholder(): string {
     <circle cx="292" cy="397" r="54" fill="#0b0d18"/><circle cx="292" cy="397" r="27" fill="#a8adbd"/>
     <circle cx="618" cy="397" r="54" fill="#0b0d18"/><circle cx="618" cy="397" r="27" fill="#a8adbd"/>
     <rect x="198" y="320" width="88" height="32" rx="12" fill="#fafafa"/><rect x="616" y="320" width="88" height="32" rx="12" fill="#fafafa"/>
+  </svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+}
+
+function companyLogoPlaceholder(): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="180" viewBox="0 0 760 180">
+    <circle cx="82" cy="90" r="66" fill="none" stroke="#ffffff" stroke-width="12"/>
+    <text x="82" y="115" fill="#ffffff" font-family="Arial,sans-serif" font-size="76" font-weight="800" text-anchor="middle">S</text>
+    <text x="174" y="78" fill="#ffffff" font-family="Arial,sans-serif" font-size="48" font-weight="800">SALGADO</text>
+    <text x="174" y="132" fill="#c4b5fd" font-family="Arial,sans-serif" font-size="35" font-weight="700">AUTOMOTRIZ</text>
   </svg>`;
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 }
@@ -111,12 +121,13 @@ function sample(): QuotationDocumentData {
     },
     settings: {
       accountId: '00000000-0000-4000-8000-000000000002',
-      companyDisplayName: 'Nexora CRM',
+      companyDisplayName: 'Salgado Automotriz',
       companyRut: '76.123.456-7',
       companyPhone: '+56 9 8764 8929',
       companyEmail: 'ventas@nexoracrm.cl',
       companyAddress: 'Santiago, Chile',
       logoUrl: null,
+      accountLogoUrl: companyLogoPlaceholder(),
       primaryColor: '#6d28d9',
       accentColor: '#8b5cf6',
       quotePrefix: 'NX',
@@ -172,7 +183,20 @@ describe.skipIf(!runVisual)('quotation document visual artifact', () => {
   test('renders inspectable PDF and PNG artifacts', async () => {
     const { renderQuotationArtifacts } = await import('./render-document');
     const markup = renderToStaticMarkup(<QuotationDocument data={sample()} />);
-    const server = createServer((_, response) => {
+    const nexoraLogo = await readFile(
+      path.join(
+        process.cwd(),
+        'public',
+        'brand',
+        'nexora-transparent-lockup.png'
+      )
+    );
+    const server = createServer((request, response) => {
+      if (request.url === '/brand/nexora-transparent-lockup.png') {
+        response.writeHead(200, { 'Content-Type': 'image/png' });
+        response.end(nexoraLogo);
+        return;
+      }
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
         `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff;font-family:Inter,Arial,sans-serif}</style></head><body>${markup}</body></html>`
