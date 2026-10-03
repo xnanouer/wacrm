@@ -1,5 +1,6 @@
 import { sanitizeQuotationInput } from './calculations';
 import type {
+  QuotationDocumentTemplate,
   QuotationInput,
   QuotationInstallmentOption,
   QuotationPurchaseType,
@@ -43,6 +44,10 @@ export function parseQuotationInput(value: unknown): QuotationInput | null {
     row.purchaseType === 'cash' || row.purchase_type === 'cash'
       ? 'cash'
       : 'financed';
+  const documentTemplate: QuotationDocumentTemplate =
+    row.documentTemplate === 'showcase' || row.document_template === 'showcase'
+      ? 'showcase'
+      : 'classic';
   return sanitizeQuotationInput({
     contactId: nullableId(row.contactId ?? row.contact_id),
     conversationId: nullableId(row.conversationId ?? row.conversation_id),
@@ -74,6 +79,7 @@ export function parseQuotationInput(value: unknown): QuotationInput | null {
     ),
     vehiclePlate: text(row.vehiclePlate ?? row.vehicle_plate),
     vehicleImageUrl: text(row.vehicleImageUrl ?? row.vehicle_image_url),
+    documentTemplate,
     purchaseType,
     listPrice: numberValue(row.listPrice ?? row.list_price),
     discountAmount: numberValue(row.discountAmount ?? row.discount_amount),
@@ -116,6 +122,7 @@ export function quotationInputToRpcPayload(input: QuotationInput) {
     vehicle_mileage_km: input.vehicleMileageKm,
     vehicle_plate: input.vehiclePlate,
     vehicle_image_url: input.vehicleImageUrl,
+    document_template: input.documentTemplate,
     purchase_type: input.purchaseType,
     list_price: input.listPrice,
     discount_amount: input.discountAmount,

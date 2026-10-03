@@ -70,6 +70,7 @@ function sample(): QuotationDocumentData {
       vehicleMileageKm: 48000,
       vehiclePlate: '',
       vehicleImageUrl: vehiclePlaceholder(),
+      documentTemplate: 'showcase',
       purchaseType: 'financed',
       listPrice: 22990000,
       discountAmount: 1000000,
@@ -192,10 +193,23 @@ describe.skipIf(!runVisual)('quotation document visual artifact', () => {
         'nexora-transparent-lockup.png'
       )
     );
+    const nexoraLightLogo = await readFile(
+      path.join(
+        process.cwd(),
+        'public',
+        'brand',
+        'nexora-transparent-lockup-light.png'
+      )
+    );
     const server = createServer((request, response) => {
       if (request.url === '/brand/nexora-transparent-lockup.png') {
         response.writeHead(200, { 'Content-Type': 'image/png' });
         response.end(nexoraLogo);
+        return;
+      }
+      if (request.url === '/brand/nexora-transparent-lockup-light.png') {
+        response.writeHead(200, { 'Content-Type': 'image/png' });
+        response.end(nexoraLightLogo);
         return;
       }
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

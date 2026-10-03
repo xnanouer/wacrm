@@ -86,9 +86,12 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const { data, error } = await ctx.supabase.rpc('create_vehicle_quotation', {
-      p_payload: quotationInputToRpcPayload(input),
-    });
+    const { data, error } = await ctx.supabase.rpc(
+      'create_vehicle_quotation_v2',
+      {
+        p_payload: quotationInputToRpcPayload(input),
+      }
+    );
     if (error || !data) return mutationError(error ?? {});
     return NextResponse.json(
       { quotation: quotationFromRow(data as Record<string, unknown>) },

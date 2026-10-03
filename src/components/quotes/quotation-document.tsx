@@ -4,6 +4,7 @@ import {
 } from '@/lib/quotes/calculations';
 import { QUOTATION_DOCUMENT_CSS } from '@/lib/quotes/document-styles';
 import type { QuotationDocumentData } from '@/lib/quotes/types';
+import { QuotationShowcaseDocument } from './quotation-showcase-document';
 
 interface QuotationDocumentProps {
   data: QuotationDocumentData;
@@ -123,6 +124,11 @@ export function QuotationDocument({
   data,
   includeStyles = true,
 }: QuotationDocumentProps) {
+  if (data.quotation.documentTemplate === 'showcase') {
+    return (
+      <QuotationShowcaseDocument data={data} includeStyles={includeStyles} />
+    );
+  }
   const { quotation, settings, installments } = data;
   const amounts = calculateQuotationAmounts(quotation);
   const firstInstallments = installments.slice(0, 6);

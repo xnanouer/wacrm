@@ -64,10 +64,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         { status: 400 }
       );
     }
-    const { data, error } = await ctx.supabase.rpc('update_vehicle_quotation', {
-      p_quotation_id: id,
-      p_payload: quotationInputToRpcPayload(input),
-    });
+    const { data, error } = await ctx.supabase.rpc(
+      'update_vehicle_quotation_v2',
+      {
+        p_quotation_id: id,
+        p_payload: quotationInputToRpcPayload(input),
+      }
+    );
     if (error || !data) {
       const forbidden = error?.message?.includes('forbidden');
       return NextResponse.json(

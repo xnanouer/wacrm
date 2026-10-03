@@ -12,6 +12,7 @@ import {
   Eye,
   FileDown,
   FileText,
+  LayoutTemplate,
   Loader2,
   MessageSquareText,
   Plus,
@@ -112,6 +113,7 @@ function blankInput(conversationId?: string | null): QuotationInput {
     vehicleMileageKm: 0,
     vehiclePlate: '',
     vehicleImageUrl: '',
+    documentTemplate: 'classic',
     purchaseType: 'financed',
     listPrice: 0,
     discountAmount: 0,
@@ -586,6 +588,90 @@ export function QuotationEditor({
         )}
       >
         <div className="space-y-5">
+          <FormSection
+            icon={LayoutTemplate}
+            title="Diseño de la cotización"
+            description="Elige cómo se presentará el PDF y la imagen que recibirá el cliente."
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(
+                [
+                  {
+                    key: 'classic',
+                    name: 'Clásica',
+                    description:
+                      'Diseño sobrio y compacto con la identidad de Nexora.',
+                  },
+                  {
+                    key: 'showcase',
+                    name: 'Presentación premium',
+                    description:
+                      'Diseño visual con foto destacada del vehículo y marca de la empresa.',
+                  },
+                ] as const
+              ).map((template) => {
+                const selected = input.documentTemplate === template.key;
+                return (
+                  <button
+                    key={template.key}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => update('documentTemplate', template.key)}
+                    className={cn(
+                      'rounded-2xl border p-4 text-left transition',
+                      selected
+                        ? 'border-primary bg-primary/5 ring-primary/20 ring-2'
+                        : 'border-border hover:border-primary/40 hover:bg-muted/40'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'mb-3 block h-20 overflow-hidden rounded-lg border',
+                        template.key === 'showcase'
+                          ? 'border-blue-300 bg-gradient-to-br from-[#061b35] via-[#0c467c] to-[#0b6bdc]'
+                          : 'border-violet-300 bg-gradient-to-br from-[#08091d] via-[#13113a] to-[#6d28d9]'
+                      )}
+                    >
+                      <span className="flex h-9 items-center gap-2 border-b border-white/20 px-3">
+                        <span className="h-2.5 w-16 rounded bg-white/90" />
+                        <span className="h-5 w-px bg-white/40" />
+                        <span className="h-4 w-9 rounded bg-white/70" />
+                      </span>
+                      <span className="grid grid-cols-[1fr_1.3fr] gap-2 p-2">
+                        <span className="h-5 rounded bg-white/85" />
+                        <span className="h-5 rounded bg-white/60" />
+                      </span>
+                    </span>
+                    <span className="flex items-center justify-between gap-3">
+                      <span>
+                        <span className="text-foreground block text-sm font-semibold">
+                          {template.name}
+                        </span>
+                        <span className="text-muted-foreground mt-1 block text-xs leading-relaxed">
+                          {template.description}
+                        </span>
+                      </span>
+                      <span
+                        className={cn(
+                          'grid size-5 shrink-0 place-items-center rounded-full border',
+                          selected
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-muted-foreground/40'
+                        )}
+                      >
+                        {selected && <Check className="size-3" />}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-muted-foreground mt-3 text-xs">
+              La foto se obtiene del vehículo seleccionado en el catálogo y el
+              logo corresponde a la empresa que emite la cotización.
+            </p>
+          </FormSection>
+
           <FormSection
             icon={UserRound}
             title="Cliente"

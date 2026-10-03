@@ -74,6 +74,8 @@ export function quotationFromRow(
     vehicleMileageKm: numeric(row.vehicle_mileage_km),
     vehiclePlate: String(row.vehicle_plate ?? ''),
     vehicleImageUrl: String(row.vehicle_image_url ?? ''),
+    documentTemplate:
+      row.document_template === 'showcase' ? 'showcase' : 'classic',
     purchaseType: row.purchase_type === 'cash' ? 'cash' : 'financed',
     listPrice: numeric(row.list_price),
     discountAmount: numeric(row.discount_amount),

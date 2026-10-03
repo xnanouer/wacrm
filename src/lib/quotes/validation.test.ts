@@ -28,6 +28,7 @@ function validQuotationInput(): QuotationInput {
     vehicleMileageKm: 0,
     vehiclePlate: '',
     vehicleImageUrl: '',
+    documentTemplate: 'classic',
     purchaseType: 'cash',
     listPrice: 10_000_000,
     discountAmount: 0,

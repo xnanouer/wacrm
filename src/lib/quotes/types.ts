@@ -12,6 +12,7 @@ export type QuotationStatus =
 
 export type QuotationPurchaseType = 'cash' | 'financed';
 export type QuotationAttachmentFormat = 'pdf' | 'png' | 'both';
+export type QuotationDocumentTemplate = 'classic' | 'showcase';
 
 export interface QuotationInstallmentOption {
   id?: string;
@@ -73,6 +74,7 @@ export interface QuotationInput {
   vehicleMileageKm: number;
   vehiclePlate: string;
   vehicleImageUrl: string;
+  documentTemplate: QuotationDocumentTemplate;
   purchaseType: QuotationPurchaseType;
   listPrice: number;
   discountAmount: number;

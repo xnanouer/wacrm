@@ -84,6 +84,8 @@ export function sanitizeQuotationInput(input: QuotationInput): QuotationInput {
     vehicleDrivetrain: input.vehicleDrivetrain.trim(),
     vehiclePlate: input.vehiclePlate.trim().toUpperCase(),
     vehicleImageUrl: input.vehicleImageUrl.trim(),
+    documentTemplate:
+      input.documentTemplate === 'showcase' ? 'showcase' : 'classic',
     listPrice: amounts.listPrice,
     discountAmount: amounts.discountAmount,
     downPayment: amounts.downPayment,

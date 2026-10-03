@@ -43,6 +43,7 @@ function documentData(): QuotationDocumentData {
       vehicleMileageKm: 1000,
       vehiclePlate: 'ABCD12',
       vehicleImageUrl: '',
+      documentTemplate: 'classic',
       purchaseType: 'financed',
       listPrice: 20_000_000,
       discountAmount: 1_000_000,
@@ -143,5 +144,20 @@ describe('QuotationDocument', () => {
 
     expect(html).toContain('/brand/nexora-transparent-lockup.png');
     expect(html).toContain('<strong>Empresa sin logo</strong>');
+  });
+
+  it('renders the premium design with the selected vehicle and issuer images', () => {
+    const data = documentData();
+    data.quotation.documentTemplate = 'showcase';
+    data.quotation.vehicleImageUrl = 'https://example.com/vehicle.jpg';
+    data.settings.accountLogoUrl = 'https://example.com/company.png';
+    const html = renderToStaticMarkup(
+      <QuotationDocument data={data} includeStyles={false} />
+    );
+
+    expect(html).toContain('showcase-document');
+    expect(html).toContain('showcase-header');
+    expect(html).toContain('https://example.com/vehicle.jpg');
+    expect(html).toContain('https://example.com/company.png');
   });
 });
