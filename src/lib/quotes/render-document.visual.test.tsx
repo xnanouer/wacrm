@@ -28,10 +28,11 @@ function vehiclePlaceholder(): string {
 
 function companyLogoPlaceholder(): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="180" viewBox="0 0 760 180">
-    <circle cx="82" cy="90" r="66" fill="none" stroke="#ffffff" stroke-width="12"/>
-    <text x="82" y="115" fill="#ffffff" font-family="Arial,sans-serif" font-size="76" font-weight="800" text-anchor="middle">S</text>
-    <text x="174" y="78" fill="#ffffff" font-family="Arial,sans-serif" font-size="48" font-weight="800">SALGADO</text>
-    <text x="174" y="132" fill="#c4b5fd" font-family="Arial,sans-serif" font-size="35" font-weight="700">AUTOMOTRIZ</text>
+    <rect width="760" height="180" fill="#ffffff"/>
+    <circle cx="82" cy="90" r="66" fill="none" stroke="#2457a6" stroke-width="12"/>
+    <text x="82" y="115" fill="#2457a6" font-family="Arial,sans-serif" font-size="76" font-weight="800" text-anchor="middle">S</text>
+    <text x="174" y="78" fill="#2457a6" font-family="Arial,sans-serif" font-size="48" font-weight="800">SALGADO</text>
+    <text x="174" y="132" fill="#4b7cc4" font-family="Arial,sans-serif" font-size="35" font-weight="700">AUTOMOTRIZ</text>
   </svg>`;
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 }
