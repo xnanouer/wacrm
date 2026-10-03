@@ -3,16 +3,16 @@ export const QUOTATION_DOCUMENT_CSS = String.raw`
   .quote-document { width: 210mm; margin: 0 auto; color: #11142d; background: #fff; }
   .quote-page { position: relative; width: 210mm; min-height: 297mm; overflow: hidden; background: #fff; page-break-after: always; }
   .quote-page:last-child { page-break-after: auto; }
-  .quote-header { min-height: 47mm; padding: 12mm 11mm 9mm; display: grid; grid-template-columns: minmax(0,1fr) 64mm; gap: 6mm; align-items: center; background: radial-gradient(circle at 14% 30%, rgba(109,40,217,.24), transparent 28%), linear-gradient(135deg,#07091d 0%,#0b0c27 56%,#08091b 100%); color: #fff; border-bottom: 1.5mm solid var(--quote-primary); }
+  .quote-header { min-height: 52mm; padding: 11mm 11mm 9mm; display: grid; grid-template-columns: minmax(0,1fr) 52mm; gap: 4mm; align-items: center; background: radial-gradient(circle at 14% 30%, rgba(109,40,217,.24), transparent 28%), linear-gradient(135deg,#07091d 0%,#0b0c27 56%,#08091b 100%); color: #fff; border-bottom: 1.5mm solid var(--quote-primary); }
   .quote-brand { display: flex; align-items: center; min-width: 0; }
   .quote-brand-lockup { display: flex; align-items: center; gap: 4mm; min-width: 0; max-width: 100%; }
   .quote-brand-lockup img { display: block; object-fit: contain; }
-  .quote-nexora-logo { width: 72mm; max-height: 22mm; object-position: left center; flex: 0 1 auto; }
-  .quote-brand-divider { width: .3mm; height: 20mm; flex: 0 0 auto; background: rgba(255,255,255,.35); }
-  .quote-company-brand { display: flex; align-items: center; min-width: 0; max-width: 32mm; min-height: 20mm; }
-  .quote-company-brand img { max-width: 32mm; max-height: 19mm; object-position: left center; filter: grayscale(1) invert(1) contrast(1.8) brightness(1.35); mix-blend-mode: screen; }
-  .quote-company-brand strong { color: #fff; font-size: 4.8mm; line-height: 1.08; font-weight: 800; overflow-wrap: anywhere; }
-  .quote-meta { border-left: .3mm solid rgba(139,92,246,.55); padding-left: 8mm; display: grid; gap: 4mm; }
+  .quote-nexora-logo { width: 78mm; max-height: 25mm; object-position: left center; flex: 0 1 auto; }
+  .quote-brand-divider { width: .3mm; height: 25mm; flex: 0 0 auto; background: rgba(255,255,255,.35); }
+  .quote-company-brand { display: flex; align-items: center; min-width: 0; width: 44mm; max-width: 44mm; min-height: 25mm; overflow: hidden; }
+  .quote-company-brand img { width: 100%; max-width: 44mm; max-height: 25mm; object-position: center; transform: scale(1.2); transform-origin: center; filter: grayscale(1) invert(1) contrast(1.8) brightness(1.35); mix-blend-mode: screen; }
+  .quote-company-brand strong { color: #fff; font-size: 5.5mm; line-height: 1.08; font-weight: 800; overflow-wrap: anywhere; }
+  .quote-meta { border-left: .3mm solid rgba(139,92,246,.55); padding-left: 6mm; display: grid; gap: 4mm; }
   .quote-meta-row { display: grid; grid-template-columns: 7mm 1fr; gap: 3mm; align-items: start; }
   .quote-meta-icon { color: var(--quote-accent); font-size: 5mm; line-height: 1; }
   .quote-meta-label { color: #c7c9da; font-size: 3.1mm; line-height: 1.2; }
