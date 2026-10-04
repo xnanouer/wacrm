@@ -78,7 +78,9 @@ export async function renderQuotationArtifacts(
   const instance = await browser();
   const page = await instance.newPage();
   try {
-    await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+    // Render the shareable PNG at roughly 288 DPI while preserving the A4
+    // proportions used by the vector PDF.
+    await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 3 });
     if (source.cookieHeader) {
       await page.setExtraHTTPHeaders({ cookie: source.cookieHeader });
     }

@@ -23,6 +23,13 @@ function formatDate(value: string): string {
   }).format(date);
 }
 
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  const shortened = value.slice(0, maxLength - 3);
+  const lastSpace = shortened.lastIndexOf(' ');
+  return `${shortened.slice(0, lastSpace > maxLength * 0.7 ? lastSpace : undefined).trimEnd()}...`;
+}
+
 function BrandLockup({ data }: { data: QuotationDocumentData }) {
   const companyLogoSrc = data.settings.logoUrl || data.settings.accountLogoUrl;
   return (
@@ -38,7 +45,11 @@ function BrandLockup({ data }: { data: QuotationDocumentData }) {
       <div className="showcase-company">
         {companyLogoSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={companyLogoSrc} alt={data.settings.companyDisplayName} />
+          <img
+            className="showcase-company-logo-knockout"
+            src={companyLogoSrc}
+            alt={data.settings.companyDisplayName}
+          />
         ) : (
           <strong>{data.settings.companyDisplayName}</strong>
         )}
@@ -79,11 +90,19 @@ function FinanceValue({
 }) {
   return (
     <div
-      className={`showcase-finance-item${variant === 'total' ? 'total' : ''}`}
+      className={
+        variant === 'total'
+          ? 'showcase-finance-item total'
+          : 'showcase-finance-item'
+      }
     >
       <span className="showcase-finance-label">{label}</span>
       <strong
-        className={`showcase-finance-value${variant === 'discount' ? 'discount' : ''}`}
+        className={
+          variant === 'discount'
+            ? 'showcase-finance-value discount'
+            : 'showcase-finance-value'
+        }
       >
         {value}
       </strong>
@@ -97,9 +116,24 @@ export function QuotationShowcaseDocument({
 }: QuotationShowcaseDocumentProps) {
   const { quotation, settings, installments } = data;
   const amounts = calculateQuotationAmounts(quotation);
-  const visibleInstallments = installments.slice(0, 4);
-  const extraInstallments = installments.slice(4);
+  const orderedInstallments = [...installments].sort(
+    (left, right) => left.termMonths - right.termMonths
+  );
+  const visibleInstallments = orderedInstallments.slice(0, 4);
+  const extraInstallments = orderedInstallments.slice(4);
   const companyLogoSrc = settings.logoUrl || settings.accountLogoUrl;
+  const termsText = quotation.termsText || settings.defaultTerms;
+  const documentNotes = quotation.documentNotes || '';
+  const needsContinuation =
+    extraInstallments.length > 0 ||
+    termsText.length > 300 ||
+    documentNotes.length > 180;
+  const firstPageTerms = needsContinuation
+    ? truncateText(termsText, 300)
+    : termsText;
+  const firstPageNotes = documentNotes
+    ? truncateText(documentNotes, 180)
+    : 'Sin observaciones adicionales.';
   const vehicleName = [
     quotation.vehicleMake,
     quotation.vehicleModel,
@@ -111,6 +145,30 @@ export function QuotationShowcaseDocument({
   return (
     <div className="quote-document showcase-document">
       {includeStyles && <style>{QUOTATION_SHOWCASE_DOCUMENT_CSS}</style>}
+      <svg
+        className="showcase-filter-definitions"
+        width="0"
+        height="0"
+        aria-hidden="true"
+      >
+        <filter
+          id="showcase-logo-knockout"
+          colorInterpolationFilters="sRGB"
+          x="-2%"
+          y="-8%"
+          width="104%"
+          height="116%"
+        >
+          <feColorMatrix
+            type="matrix"
+            values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  -0.333 -0.333 -0.333 0 1"
+          />
+          <feComponentTransfer>
+            <feFuncA type="discrete" tableValues="0 0 1 1 1" />
+          </feComponentTransfer>
+          <feComposite in2="SourceAlpha" operator="in" />
+        </filter>
+      </svg>
       <article className="showcase-page">
         <header className="showcase-header">
           {quotation.vehicleImageUrl && (
@@ -163,9 +221,13 @@ export function QuotationShowcaseDocument({
 
         <main className="showcase-body">
           <div className="showcase-title-wrap">
-            <h1 className="showcase-title">
-              COTIZACIÓN <span>VEHICULAR</span>
-            </h1>
+            <div>
+              <div className="showcase-title-kicker">Propuesta comercial</div>
+              <h1 className="showcase-title">
+                COTIZACIÓN <span>VEHICULAR</span>
+              </h1>
+            </div>
+            <div className="showcase-title-vehicle">{vehicleName}</div>
             <span className="showcase-title-stripes" aria-hidden="true">
               <i />
               <i />
@@ -273,8 +335,20 @@ export function QuotationShowcaseDocument({
             </div>
             <div className="showcase-vehicle-photo">
               {quotation.vehicleImageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={quotation.vehicleImageUrl} alt={vehicleName} />
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    className="showcase-photo-backdrop"
+                    src={quotation.vehicleImageUrl}
+                    alt=""
+                  />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    className="showcase-photo-main"
+                    src={quotation.vehicleImageUrl}
+                    alt={vehicleName}
+                  />
+                </>
               ) : (
                 <div className="showcase-photo-placeholder">
                   Selecciona un vehículo del catálogo
@@ -307,10 +381,16 @@ export function QuotationShowcaseDocument({
                 variant="total"
               />
               {quotation.purchaseType === 'financed' ? (
-                <FinanceValue
-                  label={`Pie ${amounts.downPaymentPercentage}%`}
-                  value={formatClp(amounts.downPayment)}
-                />
+                <div className="showcase-payment-summary">
+                  <div>
+                    <span>Pie {amounts.downPaymentPercentage}%</span>
+                    <strong>{formatClp(amounts.downPayment)}</strong>
+                  </div>
+                  <div>
+                    <span>Monto a financiar</span>
+                    <strong>{formatClp(amounts.amountToFinance)}</strong>
+                  </div>
+                </div>
               ) : (
                 <FinanceValue label="Modalidad" value="Contado" />
               )}
@@ -378,19 +458,29 @@ export function QuotationShowcaseDocument({
             <div>
               <h2 className="showcase-bottom-title">Observaciones</h2>
               <div className="showcase-observation">
-                {quotation.documentNotes || 'Sin observaciones adicionales.'}
+                {firstPageNotes}
+                {needsContinuation && documentNotes.length > 180 && (
+                  <span className="showcase-more-note">
+                    Detalle completo en la página siguiente.
+                  </span>
+                )}
               </div>
             </div>
           </section>
           <div className="showcase-terms">
-            <strong>Importante:</strong>{' '}
-            {quotation.termsText || settings.defaultTerms}
+            <strong>Importante:</strong> {firstPageTerms}
+            {needsContinuation && termsText.length > 300 && (
+              <span>
+                {' '}
+                Consulta las condiciones completas en la página siguiente.
+              </span>
+            )}
           </div>
         </main>
         <footer className="showcase-footer" />
       </article>
 
-      {extraInstallments.length > 0 && (
+      {needsContinuation && (
         <article className="showcase-page">
           <div className="showcase-continuation">
             <div className="showcase-continuation-head">
@@ -418,29 +508,40 @@ export function QuotationShowcaseDocument({
                 {quotation.quoteNumber}
               </span>
             </div>
-            <h2>Opciones de financiamiento — continuación</h2>
-            <table className="showcase-table">
-              <thead>
-                <tr>
-                  <th>Plazo</th>
-                  <th>Valor cuota (CLP)</th>
-                  <th>Observaciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {extraInstallments.map((option) => (
-                  <tr key={`${option.termMonths}-${option.sortOrder}`}>
-                    <td>{option.termMonths} cuotas</td>
-                    <td>{formatClp(option.monthlyPayment)}</td>
-                    <td>{option.observation}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="showcase-terms">
-              <strong>Importante:</strong>{' '}
-              {quotation.termsText || settings.defaultTerms}
-            </div>
+            <h2>Información complementaria</h2>
+            {extraInstallments.length > 0 && (
+              <section className="showcase-continuation-section">
+                <h3>Opciones de financiamiento adicionales</h3>
+                <table className="showcase-table">
+                  <thead>
+                    <tr>
+                      <th>Plazo</th>
+                      <th>Valor cuota (CLP)</th>
+                      <th>Observaciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {extraInstallments.map((option) => (
+                      <tr key={`${option.termMonths}-${option.sortOrder}`}>
+                        <td>{option.termMonths} cuotas</td>
+                        <td>{formatClp(option.monthlyPayment)}</td>
+                        <td>{option.observation}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
+            {documentNotes.length > 180 && (
+              <section className="showcase-continuation-section">
+                <h3>Observaciones</h3>
+                <p>{documentNotes}</p>
+              </section>
+            )}
+            <section className="showcase-continuation-section">
+              <h3>Condiciones importantes</h3>
+              <p>{termsText}</p>
+            </section>
           </div>
           <footer className="showcase-footer" />
         </article>
