@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { es } from 'date-fns/locale';
 import {
   BrainCircuit,
   CheckCircle2,
@@ -185,18 +186,18 @@ export default function CoachPage() {
   }
 
   return (
-    <div className="nexora-page-stack">
-      <section className="border-primary/20 from-primary/10 via-card to-card relative overflow-hidden rounded-[32px] border bg-gradient-to-br p-7 sm:p-9">
+    <div className="nexora-page-stack max-w-full min-w-0 overflow-x-hidden">
+      <section className="border-primary/20 from-primary/10 via-card to-card relative min-w-0 overflow-hidden rounded-[24px] border bg-gradient-to-br p-5 sm:rounded-[32px] sm:p-9">
         <div className="bg-primary/15 pointer-events-none absolute -top-20 right-10 size-64 rounded-full blur-3xl" />
         <div className="relative flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div>
-            <div className="flex items-center gap-3">
-              <span className="bg-primary/12 text-primary ring-primary/20 flex size-12 items-center justify-center rounded-2xl ring-1">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="bg-primary/12 text-primary ring-primary/20 flex size-11 shrink-0 items-center justify-center rounded-2xl ring-1 sm:size-12">
                 <BrainCircuit className="size-6" />
               </span>
               <div>
                 <p className="nexora-kicker">Desarrollo del equipo</p>
-                <h1 className="text-foreground mt-1 text-3xl font-bold tracking-[-0.04em] sm:text-4xl">
+                <h1 className="text-foreground mt-1 text-[1.7rem] leading-tight font-bold tracking-[-0.04em] sm:text-4xl">
                   Coach IA Nexora
                 </h1>
               </div>
@@ -207,7 +208,12 @@ export default function CoachPage() {
               nunca se califican como trabajo del ejecutivo.
             </p>
           </div>
-          <Button variant="outline" onClick={load} disabled={loading}>
+          <Button
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={load}
+            disabled={loading}
+          >
             <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
             Actualizar
           </Button>
@@ -215,7 +221,7 @@ export default function CoachPage() {
       </section>
 
       {isManager ? (
-        <section className="border-border bg-card rounded-[28px] border p-6 sm:p-7">
+        <section className="border-border bg-card min-w-0 overflow-hidden rounded-[24px] border p-5 sm:rounded-[28px] sm:p-7">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-3">
               <span className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-xl">
@@ -318,7 +324,7 @@ export default function CoachPage() {
             <select
               value={agentFilter}
               onChange={(event) => setAgentFilter(event.target.value)}
-              className="border-border bg-card text-foreground h-11 rounded-xl border px-4 text-sm"
+              className="border-border bg-card text-foreground h-12 w-full max-w-full rounded-xl border px-4 text-base sm:h-11 sm:w-auto sm:text-sm"
             >
               <option value="all">Todo el equipo</option>
               {data.profiles.map((profile) => (
@@ -345,7 +351,7 @@ export default function CoachPage() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid max-w-full min-w-0 gap-4 xl:grid-cols-2">
             {visibleReviews.map((review) => {
               const profile = profilesById.get(review.agent_user_id);
               return (
@@ -427,7 +433,7 @@ function ReviewCard({
 
   if (review.status !== 'completed') {
     return (
-      <article className="border-border bg-card flex items-center gap-4 rounded-[24px] border p-5">
+      <article className="border-border bg-card flex max-w-full min-w-0 items-center gap-4 overflow-hidden rounded-[24px] border p-5">
         {review.status === 'processing' ? (
           <Loader2 className="text-primary size-5 animate-spin" />
         ) : (
@@ -446,10 +452,10 @@ function ReviewCard({
   }
 
   return (
-    <article className="border-border bg-card rounded-[26px] border p-5 shadow-sm sm:p-6">
-      <div className="flex items-start justify-between gap-4">
+    <article className="border-border bg-card w-full max-w-full min-w-0 overflow-hidden rounded-[22px] border p-4 shadow-sm sm:rounded-[26px] sm:p-6">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 sm:gap-4">
         <div className="flex min-w-0 items-center gap-3">
-          <Avatar className="ring-primary/15 size-11 ring-2">
+          <Avatar className="ring-primary/15 size-10 shrink-0 ring-2 sm:size-11">
             {profile?.avatar_url ? (
               <AvatarImage src={profile.avatar_url} alt={agentName} />
             ) : null}
@@ -458,23 +464,24 @@ function ReviewCard({
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="text-foreground truncate font-semibold">
+            <p className="text-foreground line-clamp-2 min-w-0 leading-5 font-semibold break-words">
               {agentName}
             </p>
-            <p className="text-muted-foreground mt-0.5 truncate text-xs">
+            <p className="text-muted-foreground mt-0.5 min-w-0 text-xs leading-4 [overflow-wrap:anywhere] break-words">
               {review.contact_name
                 ? `Conversacion con ${review.contact_name}`
                 : 'Conversacion atendida'}{' '}
               ·{' '}
               {formatDistanceToNow(new Date(review.created_at), {
                 addSuffix: true,
+                locale: es,
               })}
             </p>
           </div>
         </div>
         <span
           className={cn(
-            'shrink-0 rounded-full border px-3 py-1.5 text-sm font-bold',
+            'shrink-0 rounded-full border px-2 py-1 text-xs font-bold sm:px-3 sm:py-1.5 sm:text-sm',
             scoreTone(review.overall_score)
           )}
         >
@@ -482,11 +489,11 @@ function ReviewCard({
         </span>
       </div>
 
-      <p className="text-foreground/90 mt-5 text-sm leading-6">
+      <p className="text-foreground/90 mt-4 min-w-0 text-sm leading-6 [overflow-wrap:anywhere] break-words sm:mt-5">
         {review.summary}
       </p>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid min-w-0 gap-3 sm:mt-5 sm:grid-cols-2">
         <FeedbackList
           icon={CheckCircle2}
           title="Lo que hiciste bien"
@@ -502,22 +509,24 @@ function ReviewCard({
       </div>
 
       {review.next_actions.length > 0 ? (
-        <div className="border-primary/15 bg-primary/5 mt-3 rounded-2xl border p-4">
+        <div className="border-primary/15 bg-primary/5 mt-3 min-w-0 overflow-hidden rounded-2xl border p-3.5 sm:p-4">
           <p className="text-primary flex items-center gap-2 text-xs font-bold tracking-wide uppercase">
             <Target className="size-4" /> Acciones recomendadas
           </p>
-          <ul className="text-foreground/85 mt-3 space-y-2 text-sm">
+          <ul className="text-foreground/85 mt-3 min-w-0 space-y-2 text-sm">
             {review.next_actions.map((item) => (
-              <li key={item} className="flex gap-2">
+              <li key={item} className="flex min-w-0 gap-2">
                 <ChevronRight className="text-primary mt-0.5 size-4 shrink-0" />
-                <span>{item}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere] break-words">
+                  {item}
+                </span>
               </li>
             ))}
           </ul>
         </div>
       ) : null}
 
-      <div className="text-muted-foreground mt-4 flex items-center gap-2 text-xs">
+      <div className="text-muted-foreground mt-4 flex min-w-0 items-center gap-2 text-xs break-words">
         <UsersRound className="size-3.5" />
         {review.analyzed_message_count} mensajes humanos considerados
       </div>
@@ -537,7 +546,7 @@ function FeedbackList({
   tone: 'success' | 'primary';
 }) {
   return (
-    <div className="border-border bg-muted/20 rounded-2xl border p-4">
+    <div className="border-border bg-muted/20 max-w-full min-w-0 overflow-hidden rounded-2xl border p-3.5 sm:p-4">
       <p
         className={cn(
           'flex items-center gap-2 text-xs font-bold tracking-wide uppercase',
@@ -547,9 +556,14 @@ function FeedbackList({
         <Icon className="size-4" /> {title}
       </p>
       {items.length > 0 ? (
-        <ul className="text-foreground/85 mt-3 space-y-2 text-sm leading-5">
+        <ul className="text-foreground/85 mt-3 min-w-0 list-disc space-y-2 pl-5 text-sm leading-5 marker:text-current">
           {items.map((item) => (
-            <li key={item}>• {item}</li>
+            <li
+              key={item}
+              className="min-w-0 [overflow-wrap:anywhere] break-words"
+            >
+              {item}
+            </li>
           ))}
         </ul>
       ) : (
