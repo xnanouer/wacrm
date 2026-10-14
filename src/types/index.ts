@@ -272,6 +272,7 @@ export interface TicketEvent {
   note?: string;
   metadata: Record<string, unknown>;
   created_at: string;
+  actor?: Pick<Profile, 'user_id' | 'full_name' | 'avatar_url'> | null;
 }
 
 export interface TicketNote {
@@ -283,6 +284,7 @@ export interface TicketNote {
   body: string;
   created_at: string;
   updated_at: string;
+  author?: Pick<Profile, 'user_id' | 'full_name' | 'avatar_url'> | null;
 }
 
 export interface QuickReply {

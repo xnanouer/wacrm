@@ -1,14 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot, BrainCircuit, Gauge, Sparkles } from 'lucide-react';
+import { Bot, BrainCircuit, Gauge, RefreshCw, Sparkles } from 'lucide-react';
 
 import { AiPlayground } from '@/components/agents/ai-playground';
 import { AiUsage } from '@/components/agents/ai-usage';
+import { FollowUpAgentConfig } from '@/components/agents/follow-up-agent-config';
 import { AiConfig } from '@/components/settings/ai-config';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-type Tab = 'playground' | 'brain' | 'usage';
+type Tab = 'playground' | 'brain' | 'follow-up' | 'usage';
 
 export default function AgentsPage() {
   const [tab, setTab] = useState<Tab>('brain');
@@ -43,6 +44,9 @@ export default function AgentsPage() {
           <TabsTrigger value="playground">
             <Sparkles className="mr-1.5 size-4" /> Probar agente
           </TabsTrigger>
+          <TabsTrigger value="follow-up">
+            <RefreshCw className="mr-1.5 size-4" /> Seguimiento Pro
+          </TabsTrigger>
           <TabsTrigger value="usage">
             <Gauge className="mr-1.5 size-4" /> Consumo
           </TabsTrigger>
@@ -53,6 +57,9 @@ export default function AgentsPage() {
         </TabsContent>
         <TabsContent value="brain" className="mt-1">
           <AiConfig />
+        </TabsContent>
+        <TabsContent value="follow-up" className="mt-1">
+          <FollowUpAgentConfig />
         </TabsContent>
         <TabsContent value="usage" className="mt-1">
           <AiUsage />

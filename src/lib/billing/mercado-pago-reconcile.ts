@@ -33,7 +33,6 @@ interface MercadoPagoPayment {
 interface MercadoPagoAuthorizedPayment {
   id: string | number;
   preapproval_id?: string | null;
-  external_reference?: string | number | null;
   currency_id?: string | null;
   transaction_amount?: string | number | null;
   debit_date?: string | null;
@@ -49,9 +48,10 @@ interface MercadoPagoAuthorizedPayment {
 interface CheckoutIntent {
   id: string;
   account_id: string;
-  kind: 'subscription' | 'points';
+  kind: 'subscription' | 'points' | 'addon';
   plan_code: string | null;
   point_package_id: string | null;
+  addon_code: string | null;
   amount: number | string;
   currency: string;
   status: string;
@@ -62,7 +62,7 @@ export interface ReconcileResult {
   accountId: string;
   intentId: string;
   status: string;
-  kind: 'subscription' | 'points';
+  kind: CheckoutIntent['kind'];
 }
 
 function addDays(date: Date, days: number) {
@@ -89,7 +89,7 @@ async function getIntent(reference: unknown): Promise<CheckoutIntent | null> {
   const { data, error } = await supabaseAdmin()
     .from('billing_checkout_intents')
     .select(
-      'id, account_id, kind, plan_code, point_package_id, amount, currency, status, metadata'
+      'id, account_id, kind, plan_code, point_package_id, addon_code, amount, currency, status, metadata'
     )
     .eq('id', reference.trim())
     .maybeSingle();
@@ -115,6 +115,107 @@ async function runtimeSettings(settings?: MercadoPagoRuntimeSettings) {
   return settings ?? loadMercadoPagoSettings();
 }
 
+async function stopAddonRuntime(
+  accountId: string,
+  reason: string,
+  disableAgent: boolean
+) {
+  const admin = supabaseAdmin();
+  const now = new Date().toISOString();
+  const writes = [
+    admin
+      .from('ai_follow_up_jobs')
+      .update({
+        status: 'canceled',
+        cancel_reason: reason,
+        completed_at: now,
+      })
+      .eq('account_id', accountId)
+      .in('status', ['pending', 'running']),
+  ];
+  if (disableAgent) {
+    writes.push(
+      admin
+        .from('ai_follow_up_agents')
+        .update({ is_active: false })
+        .eq('account_id', accountId)
+    );
+  }
+  const results = await Promise.all(writes);
+  const error = results.map((result) => result.error).find(Boolean);
+  if (error) throw error;
+}
+
+async function syncAddonFromPreapproval(
+  intent: CheckoutIntent,
+  subscription: MercadoPagoPreapproval,
+  providerStatus: string
+) {
+  if (intent.kind !== 'addon' || !intent.addon_code) return;
+  const now = new Date().toISOString();
+  const status =
+    providerStatus === 'authorized'
+      ? 'active'
+      : providerStatus === 'paused'
+        ? 'past_due'
+        : providerStatus === 'cancelled' || providerStatus === 'canceled'
+          ? 'canceled'
+          : 'pending';
+  const { error } = await supabaseAdmin()
+    .from('account_addons')
+    .upsert(
+      {
+        account_id: intent.account_id,
+        addon_code: intent.addon_code,
+        status,
+        monthly_price_snapshot: Number(intent.amount),
+        included_points: Number(intent.metadata?.included_points ?? 0),
+        provider: 'mercadopago',
+        provider_subscription_id: subscription.id,
+        current_period_ends_at: subscription.next_payment_date ?? null,
+        activated_at: status === 'active' ? now : null,
+        canceled_at: status === 'canceled' ? now : null,
+      },
+      { onConflict: 'account_id,addon_code' }
+    );
+  if (error) throw error;
+  if (status !== 'active') {
+    await stopAddonRuntime(
+      intent.account_id,
+      status === 'canceled' ? 'addon_canceled' : 'addon_payment_inactive',
+      status === 'canceled'
+    );
+  }
+}
+
+async function grantAddonPoints(
+  intent: CheckoutIntent,
+  providerPaymentId: string,
+  paidAt?: string | null
+) {
+  if (intent.kind !== 'addon') return;
+  const points = Number(intent.metadata?.included_points ?? 0);
+  if (!Number.isSafeInteger(points) || points <= 0) return;
+  const base = paidAt ? new Date(paidAt) : new Date();
+  const expiresAt = new Date(base);
+  expiresAt.setUTCMonth(expiresAt.getUTCMonth() + 1);
+  const { error } = await supabaseAdmin()
+    .from('ai_point_grants')
+    .insert({
+      account_id: intent.account_id,
+      source: 'purchase',
+      original_points: points,
+      expires_at: expiresAt.toISOString(),
+      reference: `mercadopago:addon:${providerPaymentId}`,
+      metadata: {
+        checkout_intent_id: intent.id,
+        addon_code: intent.addon_code,
+        provider_payment_id: providerPaymentId,
+      },
+    });
+  if (error && error.code !== '23505') throw error;
+}
+
 export async function reconcileMercadoPagoSubscription(
   subscriptionId: string,
   settings?: MercadoPagoRuntimeSettings,
@@ -126,8 +227,14 @@ export async function reconcileMercadoPagoSubscription(
     `/preapproval/${encodeURIComponent(subscriptionId)}`
   );
   const intent = await getIntent(String(subscription.external_reference ?? ''));
-  if (!intent || intent.kind !== 'subscription' || !intent.plan_code)
+  if (
+    !intent ||
+    (intent.kind !== 'subscription' && intent.kind !== 'addon') ||
+    (intent.kind === 'subscription' && !intent.plan_code) ||
+    (intent.kind === 'addon' && !intent.addon_code)
+  ) {
     return null;
+  }
   if (expectedAccountId && intent.account_id !== expectedAccountId) {
     throw new Error('BILLING_ACCOUNT_MISMATCH');
   }
@@ -159,6 +266,16 @@ export async function reconcileMercadoPagoSubscription(
     })
     .eq('id', intent.id);
   if (intentError) throw intentError;
+
+  if (intent.kind === 'addon') {
+    await syncAddonFromPreapproval(intent, subscription, status);
+    return {
+      accountId: intent.account_id,
+      intentId: intent.id,
+      status,
+      kind: intent.kind,
+    };
+  }
 
   if (status === 'authorized') {
     const { error } = await admin
@@ -306,6 +423,41 @@ export async function reconcileMercadoPagoPayment(
     if (error) throw error;
   }
 
+  if (intent.kind === 'addon' && intent.addon_code) {
+    if (normalizedStatus !== 'pending') {
+      const addonStatus =
+        normalizedStatus === 'approved'
+          ? 'active'
+          : normalizedStatus === 'rejected'
+            ? 'past_due'
+            : 'canceled';
+      const { error } = await admin
+        .from('account_addons')
+        .update({
+          status: addonStatus,
+          activated_at:
+            addonStatus === 'active' ? new Date().toISOString() : undefined,
+          canceled_at:
+            addonStatus === 'canceled' ? new Date().toISOString() : null,
+        })
+        .eq('account_id', intent.account_id)
+        .eq('addon_code', intent.addon_code);
+      if (error) throw error;
+      if (addonStatus !== 'active') {
+        await stopAddonRuntime(
+          intent.account_id,
+          addonStatus === 'canceled'
+            ? 'addon_canceled'
+            : 'addon_payment_inactive',
+          addonStatus === 'canceled'
+        );
+      }
+    }
+    if (normalizedStatus === 'approved') {
+      await grantAddonPoints(intent, providerPaymentId, payment.date_approved);
+    }
+  }
+
   return {
     accountId: intent.account_id,
     intentId: intent.id,
@@ -329,11 +481,11 @@ export async function reconcileMercadoPagoAuthorizedPayment(
   const { data: intent, error: intentError } = await admin
     .from('billing_checkout_intents')
     .select(
-      'id, account_id, kind, plan_code, point_package_id, amount, currency, status, metadata'
+      'id, account_id, kind, plan_code, point_package_id, addon_code, amount, currency, status, metadata'
     )
     .eq('provider', 'mercadopago')
     .eq('provider_reference', invoice.preapproval_id)
-    .eq('kind', 'subscription')
+    .in('kind', ['subscription', 'addon'])
     .maybeSingle();
   if (intentError) throw intentError;
   if (!intent) return null;
@@ -359,7 +511,7 @@ export async function reconcileMercadoPagoAuthorizedPayment(
       provider: 'mercadopago',
       provider_payment_id: String(paymentId),
       provider_subscription_id: invoice.preapproval_id,
-      kind: 'subscription',
+      kind: typedIntent.kind,
       status,
       amount: Number(invoice.transaction_amount),
       currency: invoice.currency_id,
@@ -376,35 +528,70 @@ export async function reconcileMercadoPagoAuthorizedPayment(
   if (paymentError) throw paymentError;
 
   if (normalizedStatus === 'approved') {
-    const { error } = await admin
-      .from('accounts')
-      .update({
-        subscription_status: 'active',
-        grace_ends_at: null,
-        suspended_at: null,
-        suspension_reason: null,
-        current_period_ends_at: addMonth(invoice.debit_date),
-      })
-      .eq('id', typedIntent.account_id)
-      .eq('billing_subscription_id', invoice.preapproval_id);
-    if (error) throw error;
+    if (typedIntent.kind === 'subscription') {
+      const { error } = await admin
+        .from('accounts')
+        .update({
+          subscription_status: 'active',
+          grace_ends_at: null,
+          suspended_at: null,
+          suspension_reason: null,
+          current_period_ends_at: addMonth(invoice.debit_date),
+        })
+        .eq('id', typedIntent.account_id)
+        .eq('billing_subscription_id', invoice.preapproval_id);
+      if (error) throw error;
+    } else {
+      const { error } = await admin
+        .from('account_addons')
+        .update({
+          status: 'active',
+          current_period_ends_at: addMonth(invoice.debit_date),
+          activated_at: now.toISOString(),
+          canceled_at: null,
+        })
+        .eq('account_id', typedIntent.account_id)
+        .eq('addon_code', typedIntent.addon_code)
+        .eq('provider_subscription_id', invoice.preapproval_id);
+      if (error) throw error;
+      await grantAddonPoints(
+        typedIntent,
+        String(paymentId),
+        invoice.debit_date
+      );
+    }
   } else if (normalizedStatus === 'rejected') {
-    const { error } = await admin
-      .from('accounts')
-      .update({
-        subscription_status: 'past_due',
-        grace_ends_at: addDays(now, GRACE_DAYS),
-        suspension_reason: 'Mercado Pago no pudo procesar la renovación',
-      })
-      .eq('id', typedIntent.account_id)
-      .eq('billing_subscription_id', invoice.preapproval_id);
-    if (error) throw error;
+    if (typedIntent.kind === 'subscription') {
+      const { error } = await admin
+        .from('accounts')
+        .update({
+          subscription_status: 'past_due',
+          grace_ends_at: addDays(now, GRACE_DAYS),
+          suspension_reason: 'Mercado Pago no pudo procesar la renovación',
+        })
+        .eq('id', typedIntent.account_id)
+        .eq('billing_subscription_id', invoice.preapproval_id);
+      if (error) throw error;
+    } else {
+      const { error } = await admin
+        .from('account_addons')
+        .update({ status: 'past_due' })
+        .eq('account_id', typedIntent.account_id)
+        .eq('addon_code', typedIntent.addon_code)
+        .eq('provider_subscription_id', invoice.preapproval_id);
+      if (error) throw error;
+      await stopAddonRuntime(
+        typedIntent.account_id,
+        'addon_payment_inactive',
+        false
+      );
+    }
   }
 
   return {
     accountId: typedIntent.account_id,
     intentId: typedIntent.id,
     status,
-    kind: 'subscription',
+    kind: typedIntent.kind,
   };
 }

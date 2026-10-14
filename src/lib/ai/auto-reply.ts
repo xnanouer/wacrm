@@ -2,7 +2,14 @@ import { supabaseAdmin } from './admin-client';
 import { loadAiConfig } from './config';
 import { buildConversationContext } from './context';
 import { generateAgentReply } from './orchestrator';
-import { loadCatalogCandidatesByIds, sendCatalogCandidates } from './catalog';
+import {
+  buildCatalogSummary,
+  isCatalogMediaRequest,
+  isCatalogSelection,
+  loadCatalogCandidatesByIds,
+  sendCatalogCandidates,
+  type AiCatalogCandidate,
+} from './catalog';
 import { sendSocialMessageToConversation } from '@/lib/meta/send-message';
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
 import {
@@ -17,6 +24,7 @@ import {
 } from './audio';
 import { AiError, type AiConfig, type LeadProfilePatch } from './types';
 import { saveConversationLeadProfile } from './lead-profile';
+import { isAutomaticAiActiveAt } from './schedule';
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -201,6 +209,14 @@ export async function dispatchInboundToAiReply(
       !config ||
       !config.autoReplyEnabled ||
       config.operatingMode !== 'automatic'
+    ) {
+      return;
+    }
+    if (
+      !isAutomaticAiActiveAt({
+        schedule: config.activeSchedule,
+        timezone: config.timezone,
+      })
     ) {
       return;
     }
@@ -410,6 +426,9 @@ export async function dispatchInboundToAiReply(
     let handoff = false;
     let replyMode: 'text' | 'audio' = 'text';
     let catalogMatches: Array<{ id: string; label: string }> = [];
+    let catalogCandidates: AiCatalogCandidate[] = [];
+    let shouldSendCatalogMedia = false;
+    let shouldSendCatalogSummary = false;
     let leadProfilePatch: LeadProfilePatch = {};
     try {
       const runtimeConfig = coverageMode
@@ -447,12 +466,23 @@ export async function dispatchInboundToAiReply(
       const latestCustomerMessage =
         [...messages].reverse().find((message) => message.role === 'user')
           ?.content ?? '';
-      const catalogDeliveryReady =
+      const catalogResponseReady =
         config.catalogAiAutoSend &&
         catalogMatches.length > 0 &&
         Boolean(conv.whatsapp_config_id || conv.channel_connection_id);
+      const requestsCatalogMedia =
+        isCatalogMediaRequest(latestCustomerMessage) ||
+        isCatalogSelection(latestCustomerMessage);
+      shouldSendCatalogMedia =
+        catalogResponseReady &&
+        (config.catalogDeliveryMode === 'photos_immediately' ||
+          (requestsCatalogMedia && catalogMatches.length === 1));
+      shouldSendCatalogSummary =
+        catalogResponseReady &&
+        config.catalogDeliveryMode === 'summary_first' &&
+        !shouldSendCatalogMedia;
       if (
-        catalogDeliveryReady &&
+        catalogResponseReady &&
         !explicitlyRequestsHuman(latestCustomerMessage) &&
         (handoff || !text.trim())
       ) {
@@ -476,6 +506,31 @@ export async function dispatchInboundToAiReply(
         );
       }
       throw error;
+    }
+
+    if (
+      config.catalogAiAutoSend &&
+      catalogMatches.length > 0 &&
+      (conv.whatsapp_config_id || conv.channel_connection_id)
+    ) {
+      try {
+        // Re-read immediately before composing or dispatching. A unit hidden,
+        // sold or unapproved during generation is therefore never offered.
+        catalogCandidates = await loadCatalogCandidatesByIds(
+          db,
+          accountId,
+          catalogMatches.map((candidate) => candidate.id)
+        );
+        if (shouldSendCatalogSummary && catalogCandidates.length > 0) {
+          text = buildCatalogSummary(catalogCandidates, config.language);
+          handoff = false;
+          replyMode = 'text';
+        }
+      } catch (error) {
+        console.error('[ai auto-reply] catalog refresh failed:', error);
+        catalogCandidates = [];
+        shouldSendCatalogMedia = false;
+      }
     }
 
     if (
@@ -579,39 +634,26 @@ export async function dispatchInboundToAiReply(
       .eq('id', conversationId)
       .eq('account_id', accountId);
 
-    if (
-      config.catalogAiAutoSend &&
-      catalogMatches.length > 0 &&
-      (conv.whatsapp_config_id || conv.channel_connection_id)
-    ) {
+    if (shouldSendCatalogMedia && catalogCandidates.length > 0) {
       try {
-        // Re-read immediately before dispatch. A unit hidden, sold or
-        // unapproved during generation is therefore never sent.
-        const candidates = await loadCatalogCandidatesByIds(
+        await sendCatalogCandidates({
           db,
           accountId,
-          catalogMatches.map((candidate) => candidate.id)
-        );
-        if (candidates.length > 0) {
-          await sendCatalogCandidates({
-            db,
-            accountId,
-            conversationId,
-            contactId,
-            actorUserId: configOwnerUserId,
-            channel:
-              conv.channel === 'facebook' || conv.channel === 'instagram'
-                ? conv.channel
-                : 'whatsapp',
-            whatsappConfigId: conv.whatsapp_config_id,
-            channelConnectionId: conv.channel_connection_id,
-            introductionText: text,
-            introMessageId: sentReply.messageId,
-            candidates,
-            senderType: 'bot',
-            source: 'nexora_ai',
-          });
-        }
+          conversationId,
+          contactId,
+          actorUserId: configOwnerUserId,
+          channel:
+            conv.channel === 'facebook' || conv.channel === 'instagram'
+              ? conv.channel
+              : 'whatsapp',
+          whatsappConfigId: conv.whatsapp_config_id,
+          channelConnectionId: conv.channel_connection_id,
+          introductionText: text,
+          introMessageId: sentReply.messageId,
+          candidates: catalogCandidates,
+          senderType: 'bot',
+          source: 'nexora_ai',
+        });
       } catch (error) {
         // The introductory AI reply has already been delivered. Do not
         // duplicate it if one of the catalog cards fails.

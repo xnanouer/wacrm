@@ -4,7 +4,7 @@ import type { Conversation, ConversationStatus } from '@/types';
 import { isUuid } from '@/lib/validation/uuid';
 
 export type TicketActionInput =
-  | { action: 'accept' }
+  | { action: 'accept'; confirmed: true }
   | { action: 'delegate_ai' }
   | { action: 'take_ai' }
   | { action: 'status'; status: ConversationStatus; note?: string }
@@ -53,7 +53,14 @@ export function parseTicketAction(value: unknown): TicketActionInput {
   const body = value as Record<string, unknown>;
   const note = optionalNote(body.note);
 
-  if (body.action === 'accept') return { action: 'accept' };
+  if (body.action === 'accept') {
+    if (body.confirmed !== true) {
+      throw new TicketActionError(
+        'Debes confirmar expresamente que quieres tomar este lead'
+      );
+    }
+    return { action: 'accept', confirmed: true };
+  }
   if (body.action === 'delegate_ai') return { action: 'delegate_ai' };
   if (body.action === 'take_ai') return { action: 'take_ai' };
 

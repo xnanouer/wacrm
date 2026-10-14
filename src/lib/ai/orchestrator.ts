@@ -4,6 +4,8 @@ import {
   buildCatalogContext,
   findCatalogCandidates,
   hasCatalogCardsInConversation,
+  isCatalogMediaRequest,
+  isCatalogSelection,
 } from './catalog';
 import { buildSystemPrompt } from './defaults';
 import { generateLeadProfilePatch, generateReply } from './generate';
@@ -175,9 +177,15 @@ export async function generateAgentReply(args: {
         }
       )
     : { requested: false, candidates: [] };
+  const automaticCatalogCardsWillFollow =
+    mode === 'auto_reply' &&
+    config.catalogAiAutoSend &&
+    (config.catalogDeliveryMode === 'photos_immediately' ||
+      ((isCatalogMediaRequest(customerMessage) ||
+        isCatalogSelection(customerMessage)) &&
+        catalog.candidates.length === 1));
   const catalogCardsWillFollow =
-    (simulateCatalogDelivery ||
-      (mode === 'auto_reply' && config.catalogAiAutoSend)) &&
+    (simulateCatalogDelivery || automaticCatalogCardsWillFollow) &&
     catalog.candidates.length > 0;
 
   const systemPrompt = buildSystemPrompt({

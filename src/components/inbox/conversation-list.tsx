@@ -1073,6 +1073,13 @@ function ConversationItem({
   const handleAcceptClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
+      if (
+        !window.confirm(
+          '¿Quieres tomar este lead? La IA se pausará y el lead quedará asignado a ti.'
+        )
+      ) {
+        return;
+      }
       void onAccept(conversation);
     },
     [conversation, onAccept]

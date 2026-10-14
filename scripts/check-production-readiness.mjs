@@ -56,14 +56,15 @@ for (const [name, raw] of [
   }
 }
 
-if (!existsSync('supabase/migrations/085_platform_storage_monitor.sql'))
+if (!existsSync('supabase/migrations/094_ai_catalog_delivery_mode.sql'))
   errors.push(
-    'latest expected migration 085_platform_storage_monitor.sql is missing'
+    'latest expected migration 094_ai_catalog_delivery_mode.sql is missing'
   );
 
 const expectedCrons = new Set([
   '/api/automations/cron',
   '/api/flows/cron',
+  '/api/ai/follow-up/cron',
   '/api/quotes/retention',
   '/api/platform/storage/monitor',
 ]);

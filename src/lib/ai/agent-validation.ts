@@ -84,6 +84,15 @@ export function parseStructuredAiConfig(body: unknown): StructuredAiConfig {
   const requestedMode = String(input.operating_mode);
   const operatingMode: AiOperatingMode =
     requestedMode === 'automatic' ? 'automatic' : 'suggestion';
+  const activeSchedule =
+    input.active_schedule === 'weekends' ? 'weekends' : 'always';
+  const timezone =
+    text(input.timezone, 'Zona horaria', 80) || 'America/Santiago';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format();
+  } catch {
+    throw new AgentConfigValidationError('La zona horaria no es válida.');
+  }
   const afterHours = String(input.after_hours_behavior);
   const afterHoursBehavior: AiAfterHoursBehavior = [
     'suggestions_only',
@@ -124,6 +133,10 @@ export function parseStructuredAiConfig(body: unknown): StructuredAiConfig {
     5,
     Math.max(1, Math.floor(Number(input.catalog_ai_max_items) || 3))
   );
+  const catalogDeliveryMode =
+    input.catalog_delivery_mode === 'photos_immediately'
+      ? 'photos_immediately'
+      : 'summary_first';
   const parsedPermissions = permissions(input.permissions);
   const catalogEnabled =
     isActive &&
@@ -145,6 +158,7 @@ export function parseStructuredAiConfig(body: unknown): StructuredAiConfig {
       catalogEnabled &&
       operatingMode === 'automatic' &&
       input.catalog_ai_auto_send === true,
+    catalog_delivery_mode: catalogDeliveryMode,
     catalog_ai_max_items: maxCatalog,
     response_mode: 'text',
     agent_name:
@@ -176,7 +190,8 @@ export function parseStructuredAiConfig(body: unknown): StructuredAiConfig {
       20_000
     ),
     operating_mode: operatingMode,
-    timezone: text(input.timezone, 'Zona horaria', 80) || 'America/Santiago',
+    active_schedule: activeSchedule,
+    timezone,
     after_hours_behavior: afterHoursBehavior,
     after_hours_coverage_enabled:
       isActive && input.after_hours_coverage_enabled === true,

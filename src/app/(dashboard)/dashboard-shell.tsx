@@ -10,6 +10,7 @@ import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { PresenceHeartbeat } from '@/components/presence/presence-heartbeat';
 import { NexoraSupportChat } from '@/components/support/nexora-support-chat';
 import { NexoraBenefitNotifications } from '@/components/notifications/nexora-benefit-notifications';
+import { IncomingMessageNotifier } from '@/components/notifications/incoming-message-notifier';
 import { useTotalUnread } from '@/hooks/use-total-unread';
 import { cn } from '@/lib/utils';
 
@@ -70,6 +71,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
       <NexoraBenefitNotifications />
+      <IncomingMessageNotifier userId={user.id} />
       <NexoraSupportChat />
       <Sidebar
         open={sidebarOpen}

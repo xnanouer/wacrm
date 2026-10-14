@@ -41,6 +41,7 @@ import {
   COMMERCIAL_PLANS,
   EXTRA_CONNECTION_PRICE,
   EXTRA_USER_PRICE,
+  FOLLOW_UP_AGENT_ADDON,
   TRIAL_DAYS,
   calculatePlan,
   formatClp,
@@ -196,6 +197,7 @@ export function PlansAndPayments({ summary }: PlansAndPaymentsProps) {
     initialPlan.includedCatalogItems
   );
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [addonLoading, setAddonLoading] = useState(false);
   const [checkoutIssue, setCheckoutIssue] = useState<{
     message: string;
     setupUrl?: string;
@@ -232,6 +234,12 @@ export function PlansAndPayments({ summary }: PlansAndPaymentsProps) {
     calculation.extraUsers > 0 ||
     calculation.extraConnections > 0 ||
     calculation.extraCatalogBlocks > 0;
+  const followUpAddon = summary.addons.followUpAgent;
+  const followUpActive = followUpAddon?.status === 'active';
+  const followUpPending = followUpAddon?.status === 'pending';
+  const followUpPaymentIssue =
+    followUpAddon?.status === 'past_due' ||
+    followUpAddon?.status === 'suspended';
 
   const startPlanCheckout = async () => {
     if (hasUnsupportedAddons) return;
@@ -264,6 +272,67 @@ export function PlansAndPayments({ summary }: PlansAndPaymentsProps) {
         error instanceof Error ? error.message : 'No se pudo iniciar el pago.'
       );
       setCheckoutLoading(false);
+    }
+  };
+
+  const startFollowUpAgentCheckout = async () => {
+    setAddonLoading(true);
+    try {
+      const response = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'addon',
+          addonCode: FOLLOW_UP_AGENT_ADDON.code,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        checkoutUrl?: string;
+        error?: string;
+      } | null;
+      if (!response.ok || !payload?.checkoutUrl) {
+        throw new Error(payload?.error || 'No se pudo iniciar el pago.');
+      }
+      window.location.assign(payload.checkoutUrl);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'No se pudo iniciar el pago.'
+      );
+      setAddonLoading(false);
+    }
+  };
+
+  const cancelFollowUpAgent = async () => {
+    if (
+      !window.confirm(
+        'Se detendrán los seguimientos pendientes y Mercado Pago dejará de renovar este complemento. ¿Deseas continuar?'
+      )
+    ) {
+      return;
+    }
+    setAddonLoading(true);
+    try {
+      const response = await fetch(
+        `/api/billing/addons/${FOLLOW_UP_AGENT_ADDON.code}`,
+        { method: 'DELETE' }
+      );
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(
+          payload?.error || 'No se pudo cancelar el complemento.'
+        );
+      }
+      toast.success('Agente de Seguimiento Pro cancelado.');
+      window.location.reload();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo cancelar el complemento.'
+      );
+      setAddonLoading(false);
     }
   };
 
@@ -838,7 +907,7 @@ export function PlansAndPayments({ summary }: PlansAndPaymentsProps) {
             Crece cuando lo necesites
           </h2>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardContent className="flex items-center gap-4 p-5">
               <div className="bg-primary/10 text-primary flex size-11 items-center justify-center rounded-xl">
@@ -889,11 +958,108 @@ export function PlansAndPayments({ summary }: PlansAndPaymentsProps) {
               </div>
             </CardContent>
           </Card>
+          <Card id="follow-up-agent" className="border-primary/30 scroll-mt-24">
+            <CardContent className="flex h-full flex-col gap-4 p-5">
+              <div className="flex items-center gap-4">
+                <div className="bg-primary/10 text-primary flex size-11 items-center justify-center rounded-xl">
+                  <Bot className="size-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-bold">Agente de Seguimiento Pro</p>
+                    {followUpActive ? (
+                      <Badge>Activo</Badge>
+                    ) : followUpPending ? (
+                      <Badge variant="outline">Pago pendiente</Badge>
+                    ) : followUpPaymentIssue ? (
+                      <Badge variant="destructive">Pago pendiente</Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-xl font-black">
+                    {formatClp(FOLLOW_UP_AGENT_ADDON.monthlyPrice)}{' '}
+                    <span className="text-muted-foreground text-xs font-normal">
+                      / mes
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <p className="text-muted-foreground text-xs leading-5">
+                Segundo agente, seguimientos cancelables y{' '}
+                {formatNumber(FOLLOW_UP_AGENT_ADDON.includedPoints)} Puntos
+                Nexora mensuales incluidos.
+              </p>
+              {followUpActive ? (
+                <div className="mt-auto flex gap-2">
+                  <Link
+                    href="/agents"
+                    className={cn(buttonVariants({ size: 'sm' }), 'flex-1')}
+                  >
+                    Configurar
+                  </Link>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={addonLoading}
+                    onClick={cancelFollowUpAgent}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              ) : followUpPaymentIssue ? (
+                <div className="mt-auto space-y-2">
+                  <p className="text-muted-foreground text-xs">
+                    Mercado Pago no pudo renovar el complemento. Cancela esta
+                    suscripción antes de contratarlo nuevamente.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    disabled={addonLoading}
+                    onClick={cancelFollowUpAgent}
+                  >
+                    Cancelar suscripción
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-auto flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="flex-1"
+                    disabled={addonLoading}
+                    onClick={startFollowUpAgentCheckout}
+                  >
+                    {addonLoading ? (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="mr-2 size-4" />
+                    )}
+                    {followUpPending ? 'Continuar pago' : 'Contratar'}
+                  </Button>
+                  {followUpPending ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={addonLoading}
+                      onClick={cancelFollowUpAgent}
+                    >
+                      Cancelar
+                    </Button>
+                  ) : null}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
         <p className="text-muted-foreground mt-3 text-xs">
           Los adicionales se suman al precio mensual. Agregar usuarios o
-          conexiones no aumenta automáticamente tus Puntos Nexora. Los bloques
-          de Catálogo solo aumentan la capacidad de vehículos activos.
+          conexiones no aumenta automáticamente tus Puntos Nexora. El agente de
+          seguimiento incluye su propia bolsa mensual y luego consume el saldo
+          general de la empresa.
         </p>
       </section>
 

@@ -24,6 +24,8 @@ export const AI_OBJECTIVES = [
 
 export type AiObjective = (typeof AI_OBJECTIVES)[number];
 export type AiOperatingMode = 'suggestion' | 'semi_automatic' | 'automatic';
+export type AiActiveSchedule = 'always' | 'weekends';
+export type AiCatalogDeliveryMode = 'summary_first' | 'photos_immediately';
 export type AiAfterHoursBehavior =
   | 'suggestions_only'
   | 'automatic'
@@ -100,6 +102,7 @@ export interface StructuredAiConfig {
   auto_reply_max_per_conversation: number | null;
   catalog_ai_enabled: boolean;
   catalog_ai_auto_send: boolean;
+  catalog_delivery_mode: AiCatalogDeliveryMode;
   catalog_ai_max_items: number;
   response_mode: 'text';
   agent_name: string;
@@ -116,6 +119,7 @@ export interface StructuredAiConfig {
   custom_objective: string;
   additional_instructions: string;
   operating_mode: AiOperatingMode;
+  active_schedule: AiActiveSchedule;
   timezone: string;
   after_hours_behavior: AiAfterHoursBehavior;
   after_hours_coverage_enabled: boolean;
@@ -181,6 +185,7 @@ export const DEFAULT_STRUCTURED_AI_CONFIG: StructuredAiConfig = {
   auto_reply_max_per_conversation: 3,
   catalog_ai_enabled: false,
   catalog_ai_auto_send: false,
+  catalog_delivery_mode: 'summary_first',
   catalog_ai_max_items: 3,
   response_mode: 'text',
   agent_name: 'Asistente Nexora',
@@ -197,6 +202,7 @@ export const DEFAULT_STRUCTURED_AI_CONFIG: StructuredAiConfig = {
   custom_objective: '',
   additional_instructions: '',
   operating_mode: 'suggestion',
+  active_schedule: 'always',
   timezone: 'America/Santiago',
   after_hours_behavior: 'suggestions_only',
   after_hours_coverage_enabled: false,

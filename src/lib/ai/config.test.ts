@@ -55,6 +55,7 @@ const ROW = {
   auto_reply_max_per_conversation: 3,
   catalog_ai_enabled: false,
   catalog_ai_auto_send: true,
+  catalog_delivery_mode: 'photos_immediately',
   catalog_ai_max_items: 3,
   response_mode: 'text',
 };
@@ -76,6 +77,7 @@ describe('loadAiConfig managed mode', () => {
       responseMode: 'text',
       catalogAiEnabled: false,
       catalogAiAutoSend: true,
+      catalogDeliveryMode: 'photos_immediately',
       catalogAiMaxItems: 3,
       embeddingsApiKey: null,
     });

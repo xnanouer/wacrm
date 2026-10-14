@@ -138,101 +138,11 @@ export default function InboxPage() {
    * realtime channel). The ref is kept in sync via the effect below.
    */
   const knownConvIdsRef = useRef<Set<string>>(new Set());
-  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
-  const notificationAudioContextRef = useRef<AudioContext | null>(null);
   useEffect(() => {
     const next = new Set<string>();
     for (const c of conversations) next.add(c.id);
     knownConvIdsRef.current = next;
   }, [conversations]);
-
-  const getNotificationAudioContext = useCallback(() => {
-    if (typeof window === 'undefined') return null;
-    if (
-      notificationAudioContextRef.current &&
-      notificationAudioContextRef.current.state !== 'closed'
-    ) {
-      return notificationAudioContextRef.current;
-    }
-
-    type AudioContextConstructor = new () => AudioContext;
-    const AudioContextClass: AudioContextConstructor | undefined =
-      window.AudioContext ||
-      (
-        window as typeof window & {
-          webkitAudioContext?: AudioContextConstructor;
-        }
-      ).webkitAudioContext;
-    if (!AudioContextClass) return null;
-
-    notificationAudioContextRef.current = new AudioContextClass();
-    return notificationAudioContextRef.current;
-  }, []);
-
-  useEffect(() => {
-    const unlockAudio = () => {
-      const context = getNotificationAudioContext();
-      if (context?.state === 'suspended') void context.resume().catch(() => {});
-    };
-
-    document.addEventListener('pointerdown', unlockAudio, {
-      capture: true,
-      once: true,
-    });
-    document.addEventListener('keydown', unlockAudio, {
-      capture: true,
-      once: true,
-    });
-    return () => {
-      document.removeEventListener('pointerdown', unlockAudio, true);
-      document.removeEventListener('keydown', unlockAudio, true);
-      const context = notificationAudioContextRef.current;
-      notificationAudioContextRef.current = null;
-      if (context && context.state !== 'closed') void context.close();
-    };
-  }, [getNotificationAudioContext]);
-
-  const playIncomingMessageSound = useCallback(() => {
-    const context = getNotificationAudioContext();
-    if (!context) return;
-
-    const playChime = () => {
-      const now = context.currentTime;
-      const notes = [
-        { frequency: 880, start: 0, duration: 0.1, volume: 0.055 },
-        { frequency: 1174.66, start: 0.12, duration: 0.14, volume: 0.04 },
-      ];
-
-      for (const note of notes) {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(note.frequency, now + note.start);
-        gain.gain.setValueAtTime(0.0001, now + note.start);
-        gain.gain.exponentialRampToValueAtTime(
-          note.volume,
-          now + note.start + 0.012
-        );
-        gain.gain.exponentialRampToValueAtTime(
-          0.0001,
-          now + note.start + note.duration
-        );
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.start(now + note.start);
-        oscillator.stop(now + note.start + note.duration + 0.02);
-      }
-    };
-
-    if (context.state === 'suspended') {
-      void context
-        .resume()
-        .then(playChime)
-        .catch(() => {});
-      return;
-    }
-    playChime();
-  }, [getNotificationAudioContext]);
 
   // Pull the conversation row with its `contact` joined and merge it
   // into state. Needed because Supabase Realtime payloads only carry the
@@ -334,18 +244,6 @@ export default function InboxPage() {
       const newMsg = event.new;
 
       if (event.eventType === 'INSERT') {
-        if (
-          newMsg.sender_type === 'customer' &&
-          !notifiedMessageIdsRef.current.has(newMsg.id)
-        ) {
-          notifiedMessageIdsRef.current.add(newMsg.id);
-          if (notifiedMessageIdsRef.current.size > 250) {
-            const oldest = notifiedMessageIdsRef.current.values().next().value;
-            if (oldest) notifiedMessageIdsRef.current.delete(oldest);
-          }
-          playIncomingMessageSound();
-        }
-
         // Add to messages if it belongs to active conversation
         if (
           activeConversation &&
@@ -403,7 +301,7 @@ export default function InboxPage() {
         );
       }
     },
-    [activeConversation, hydrateConversation, playIncomingMessageSound]
+    [activeConversation, hydrateConversation]
   );
 
   // Handle realtime conversation events
@@ -805,7 +703,7 @@ export default function InboxPage() {
       const response = await fetch(`/api/tickets/${conversation.id}/action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'accept' }),
+        body: JSON.stringify({ action: 'accept', confirmed: true }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {

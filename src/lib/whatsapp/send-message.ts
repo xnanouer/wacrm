@@ -83,6 +83,8 @@ export interface SendMessageParams {
   senderId?: string | null;
   /** Human sends pause active Flows; automated sends do not. */
   pauseFlows?: boolean;
+  /** Marks system-originated sends so DB scheduling does not recurse. */
+  automationOrigin?: 'follow_up_agent' | null;
 }
 
 export interface SendMessageResult {
@@ -187,6 +189,7 @@ export async function sendMessageToConversation(
     senderType = 'agent',
     senderId,
     pauseFlows = true,
+    automationOrigin = null,
   } = params;
 
   if (!conversationId) {
@@ -494,6 +497,7 @@ export async function sendMessageToConversation(
       message_id: waMessageId,
       status: initialMessageStatus,
       reply_to_message_id: replyToMessageId || null,
+      automation_origin: automationOrigin,
     })
     .select()
     .single();

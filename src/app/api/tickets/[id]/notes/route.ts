@@ -33,7 +33,34 @@ export async function GET(
         { error: 'Failed to load ticket notes' },
         { status: 500 }
       );
-    return NextResponse.json({ notes: data ?? [] });
+
+    const notes = data ?? [];
+    const authorIds = [
+      ...new Set(notes.map((note) => note.author_user_id).filter(Boolean)),
+    ];
+    const authors = new Map<
+      string,
+      { user_id: string; full_name: string; avatar_url: string | null }
+    >();
+
+    if (authorIds.length > 0) {
+      const { data: profiles } = await ctx.supabase
+        .from('profiles')
+        .select('user_id, full_name, avatar_url')
+        .eq('account_id', ctx.accountId)
+        .in('user_id', authorIds);
+
+      for (const profile of profiles ?? []) {
+        authors.set(profile.user_id, profile);
+      }
+    }
+
+    return NextResponse.json({
+      notes: notes.map((note) => ({
+        ...note,
+        author: authors.get(note.author_user_id) ?? null,
+      })),
+    });
   } catch (error) {
     return toErrorResponse(error);
   }
@@ -88,7 +115,18 @@ export async function POST(
         { error: 'Failed to add ticket note' },
         { status: 403 }
       );
-    return NextResponse.json({ note: data }, { status: 201 });
+
+    const { data: author } = await ctx.supabase
+      .from('profiles')
+      .select('user_id, full_name, avatar_url')
+      .eq('account_id', ctx.accountId)
+      .eq('user_id', ctx.userId)
+      .maybeSingle();
+
+    return NextResponse.json(
+      { note: { ...data, author: author ?? null } },
+      { status: 201 }
+    );
   } catch (error) {
     return toErrorResponse(error);
   }

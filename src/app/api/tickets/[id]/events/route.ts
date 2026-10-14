@@ -25,7 +25,40 @@ export async function GET(
         { error: 'Failed to load ticket history' },
         { status: 500 }
       );
-    return NextResponse.json({ events: data ?? [] });
+
+    const events = data ?? [];
+    const actorIds = [
+      ...new Set(
+        events
+          .map((event) => event.actor_user_id)
+          .filter((actorId): actorId is string => Boolean(actorId))
+      ),
+    ];
+    const actors = new Map<
+      string,
+      { user_id: string; full_name: string; avatar_url: string | null }
+    >();
+
+    if (actorIds.length > 0) {
+      const { data: profiles } = await ctx.supabase
+        .from('profiles')
+        .select('user_id, full_name, avatar_url')
+        .eq('account_id', ctx.accountId)
+        .in('user_id', actorIds);
+
+      for (const profile of profiles ?? []) {
+        actors.set(profile.user_id, profile);
+      }
+    }
+
+    return NextResponse.json({
+      events: events.map((event) => ({
+        ...event,
+        actor: event.actor_user_id
+          ? (actors.get(event.actor_user_id) ?? null)
+          : null,
+      })),
+    });
   } catch (error) {
     return toErrorResponse(error);
   }

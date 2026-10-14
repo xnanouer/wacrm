@@ -2,6 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import {
+  reopenedTicketState,
+  resolveReturningAgent,
+} from '@/lib/tickets/reopen-assignment';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { fetchSocialParticipant } from '@/lib/meta/api';
 import {
@@ -376,7 +380,7 @@ async function findOrCreateConversation(
 ): Promise<{ id: string; unread_count: number; created: boolean }> {
   const { data: existing } = await admin
     .from('conversations')
-    .select('id, unread_count, status')
+    .select('id, unread_count, status, assigned_agent_id, department_id')
     .eq('account_id', connection.account_id)
     .eq('channel', connection.channel)
     .eq('channel_connection_id', connection.id)
@@ -384,11 +388,23 @@ async function findOrCreateConversation(
     .maybeSingle();
   if (existing) {
     if (existing.status === 'closed' || existing.status === 'waiting') {
+      const reopenedState =
+        existing.status === 'closed'
+          ? reopenedTicketState(
+              await resolveReturningAgent(admin, {
+                accountId: connection.account_id,
+                assignedAgentId: existing.assigned_agent_id,
+                departmentId: existing.department_id,
+              })
+            )
+          : {
+              status: 'open' as const,
+              assigned_agent_id: existing.assigned_agent_id,
+            };
       await admin
         .from('conversations')
         .update({
-          status: 'pending',
-          assigned_agent_id: null,
+          ...reopenedState,
           closed_at: null,
           closed_by_user_id: null,
           waiting_since: null,

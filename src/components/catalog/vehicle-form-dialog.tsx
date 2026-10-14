@@ -723,6 +723,7 @@ function SortableGalleryImage({
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
@@ -746,13 +747,22 @@ function SortableGalleryImage({
         index === 0 && 'border-primary/55 ring-primary/10 ring-2'
       )}
     >
-      <div className="bg-muted relative aspect-[4/3] overflow-hidden">
+      <div
+        {...listeners}
+        className="bg-muted relative aspect-[4/3] cursor-grab touch-none overflow-hidden select-none active:cursor-grabbing"
+        title="Arrastra la fotografía para cambiar su posición"
+      >
         {image.url ? (
           // Signed and local blob URLs do not benefit from Next image optimization.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={image.url} alt={label} className="size-full object-cover" />
+          <img
+            src={image.url}
+            alt={label}
+            draggable={false}
+            className="pointer-events-none size-full object-cover"
+          />
         ) : (
-          <div className="text-muted-foreground flex size-full flex-col items-center justify-center gap-1 px-3 text-center">
+          <div className="text-muted-foreground pointer-events-none flex size-full flex-col items-center justify-center gap-1 px-3 text-center">
             <ImageIcon className="size-6" />
             <span className="text-[10px]">Vista previa no disponible</span>
           </div>
@@ -776,10 +786,15 @@ function SortableGalleryImage({
             Principal
           </span>
         )}
+        <span className="bg-background/90 text-foreground pointer-events-none absolute bottom-2 left-2 flex items-center gap-1 rounded-full px-2 py-1 text-[9px] font-semibold opacity-90 shadow-sm backdrop-blur transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+          <GripVertical className="size-3" />
+          Arrastra
+        </span>
       </div>
 
       <div className="flex items-center gap-1.5 p-2">
         <button
+          ref={setActivatorNodeRef}
           type="button"
           {...attributes}
           {...listeners}

@@ -6,7 +6,11 @@ import {
   toErrorResponse,
 } from '@/lib/auth/account';
 import { hasMinRole } from '@/lib/auth/roles';
-import { getCommercialPlan, getPointPackage } from '@/lib/billing/plans';
+import {
+  FOLLOW_UP_AGENT_ADDON,
+  getCommercialPlan,
+  getPointPackage,
+} from '@/lib/billing/plans';
 import {
   MercadoPagoError,
   loadMercadoPagoSettings,
@@ -58,8 +62,12 @@ export async function POST(request: Request) {
       kind?: unknown;
       planCode?: unknown;
       pointPackageId?: unknown;
+      addonCode?: unknown;
     } | null;
-    if (!body || (body.kind !== 'subscription' && body.kind !== 'points')) {
+    if (
+      !body ||
+      !['subscription', 'points', 'addon'].includes(String(body.kind))
+    ) {
       return NextResponse.json(
         { error: 'Selecciona un producto válido.' },
         { status: 400 }
@@ -80,6 +88,152 @@ export async function POST(request: Request) {
     const origin = appOrigin(request);
     const webhook = notificationUrl(origin);
     const admin = supabaseAdmin();
+
+    if (body.kind === 'addon') {
+      if (body.addonCode !== FOLLOW_UP_AGENT_ADDON.code) {
+        return NextResponse.json(
+          { error: 'Complemento inválido.' },
+          { status: 400 }
+        );
+      }
+      if (
+        !['active', 'trialing', 'past_due'].includes(
+          context.account.subscription_status
+        )
+      ) {
+        return NextResponse.json(
+          { error: 'Activa primero un plan de Nexora.' },
+          { status: 409 }
+        );
+      }
+
+      const { data: existingAddon, error: addonError } = await admin
+        .from('account_addons')
+        .select('status, provider_subscription_id')
+        .eq('account_id', context.accountId)
+        .eq('addon_code', FOLLOW_UP_AGENT_ADDON.code)
+        .maybeSingle();
+      if (addonError) throw addonError;
+      if (existingAddon?.status === 'active') {
+        return NextResponse.json(
+          {
+            error: 'El Agente de Seguimiento Pro ya está activo.',
+          },
+          { status: 409 }
+        );
+      }
+
+      const { data: pendingIntent, error: pendingError } = await admin
+        .from('billing_checkout_intents')
+        .select('redirect_url')
+        .eq('account_id', context.accountId)
+        .eq('kind', 'addon')
+        .eq('addon_code', FOLLOW_UP_AGENT_ADDON.code)
+        .eq('status', 'redirected')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (pendingError) throw pendingError;
+      if (
+        pendingIntent?.redirect_url &&
+        existingAddon &&
+        ['pending', 'past_due', 'suspended'].includes(existingAddon.status)
+      ) {
+        return NextResponse.json({
+          checkoutUrl: pendingIntent.redirect_url,
+          testMode: runtime.environment === 'test',
+          webhookAvailable: Boolean(webhook),
+          reused: true,
+        });
+      }
+      if (
+        existingAddon &&
+        ['pending', 'past_due', 'suspended'].includes(existingAddon.status)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Este complemento tiene un pago pendiente. Cancélalo antes de iniciar una contratación nueva.',
+          },
+          { status: 409 }
+        );
+      }
+
+      const { data: intent, error: intentError } = await admin
+        .from('billing_checkout_intents')
+        .insert({
+          account_id: context.accountId,
+          requested_by_user_id: context.userId,
+          kind: 'addon',
+          addon_code: FOLLOW_UP_AGENT_ADDON.code,
+          amount: FOLLOW_UP_AGENT_ADDON.monthlyPrice,
+          currency: 'CLP',
+          metadata: {
+            addon_name: FOLLOW_UP_AGENT_ADDON.name,
+            included_points: FOLLOW_UP_AGENT_ADDON.includedPoints,
+          },
+        })
+        .select('id')
+        .single();
+      if (intentError) throw intentError;
+
+      const subscription = await mercadoPagoRequest<SubscriptionResponse>(
+        runtime.accessToken,
+        '/preapproval',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            reason: `Nexora · ${FOLLOW_UP_AGENT_ADDON.name}`,
+            external_reference: intent.id,
+            payer_email: user.email,
+            auto_recurring: {
+              frequency: 1,
+              frequency_type: 'months',
+              transaction_amount: FOLLOW_UP_AGENT_ADDON.monthlyPrice,
+              currency_id: 'CLP',
+            },
+            back_url: `${origin}/api/billing/mercadopago/return`,
+            ...(webhook ? { notification_url: webhook } : {}),
+            status: 'pending',
+          }),
+        }
+      );
+
+      const { error: updateError } = await admin
+        .from('billing_checkout_intents')
+        .update({
+          provider_reference: subscription.id,
+          redirect_url: subscription.init_point,
+          status: 'redirected',
+        })
+        .eq('id', intent.id);
+      if (updateError) throw updateError;
+
+      const { error: addonUpsertError } = await admin
+        .from('account_addons')
+        .upsert(
+          {
+            account_id: context.accountId,
+            addon_code: FOLLOW_UP_AGENT_ADDON.code,
+            status: 'pending',
+            monthly_price_snapshot: FOLLOW_UP_AGENT_ADDON.monthlyPrice,
+            included_points: FOLLOW_UP_AGENT_ADDON.includedPoints,
+            provider: 'mercadopago',
+            provider_subscription_id: subscription.id,
+            current_period_ends_at: null,
+            activated_at: null,
+            canceled_at: null,
+          },
+          { onConflict: 'account_id,addon_code' }
+        );
+      if (addonUpsertError) throw addonUpsertError;
+
+      return NextResponse.json({
+        checkoutUrl: subscription.init_point,
+        testMode: runtime.environment === 'test',
+        webhookAvailable: Boolean(webhook),
+      });
+    }
 
     if (body.kind === 'subscription') {
       const plan = getCommercialPlan(String(body.planCode ?? ''));

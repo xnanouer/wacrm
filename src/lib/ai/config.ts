@@ -15,6 +15,7 @@ interface AiConfigRow {
   auto_reply_max_per_conversation: number | null;
   catalog_ai_enabled: boolean;
   catalog_ai_auto_send: boolean;
+  catalog_delivery_mode: 'summary_first' | 'photos_immediately';
   catalog_ai_max_items: number;
   response_mode: AiResponseMode;
   agent_name: string;
@@ -30,6 +31,7 @@ interface AiConfigRow {
   custom_objective: string;
   additional_instructions: string;
   operating_mode: 'suggestion' | 'semi_automatic' | 'automatic';
+  active_schedule: 'always' | 'weekends';
   timezone: string;
   after_hours_behavior: string;
   after_hours_coverage_enabled: boolean;
@@ -78,7 +80,7 @@ export interface ManagedAiAvailability {
 }
 
 const CONFIG_COLUMNS =
-  'id, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, catalog_ai_enabled, catalog_ai_auto_send, catalog_ai_max_items, response_mode, agent_name, agent_title, language, introduction_enabled, introduction_text, welcome_message, out_of_hours_message, tone, custom_tone, primary_objective, custom_objective, additional_instructions, operating_mode, timezone, after_hours_behavior, after_hours_coverage_enabled, after_hours_scope, after_hours_max_replies_per_conversation, after_hours_daily_points_limit, after_hours_monthly_points_limit, after_hours_no_points_behavior, manual_ai_delegation_enabled, business_description, business_industry, business_addresses, business_phones, business_emails, business_service_areas, business_channels, general_policies, general_requirements, authorized_commercial_info, permissions, lead_fields, escalation_rules';
+  'id, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, catalog_ai_enabled, catalog_ai_auto_send, catalog_delivery_mode, catalog_ai_max_items, response_mode, agent_name, agent_title, language, introduction_enabled, introduction_text, welcome_message, out_of_hours_message, tone, custom_tone, primary_objective, custom_objective, additional_instructions, operating_mode, active_schedule, timezone, after_hours_behavior, after_hours_coverage_enabled, after_hours_scope, after_hours_max_replies_per_conversation, after_hours_daily_points_limit, after_hours_monthly_points_limit, after_hours_no_points_behavior, manual_ai_delegation_enabled, business_description, business_industry, business_addresses, business_phones, business_emails, business_service_areas, business_channels, general_policies, general_requirements, authorized_commercial_info, permissions, lead_fields, escalation_rules';
 
 function isAiProvider(value: unknown): value is AiProvider {
   return value === 'openai' || value === 'anthropic';
@@ -187,6 +189,7 @@ export async function loadAiConfig(
     autoReplyMaxPerConversation: row.auto_reply_max_per_conversation,
     catalogAiEnabled: row.catalog_ai_enabled ?? false,
     catalogAiAutoSend: row.catalog_ai_auto_send ?? false,
+    catalogDeliveryMode: row.catalog_delivery_mode ?? 'summary_first',
     catalogAiMaxItems: Math.min(5, Math.max(1, row.catalog_ai_max_items ?? 3)),
     responseMode: row.response_mode ?? 'text',
     audioEnabled: Boolean(
@@ -212,6 +215,7 @@ export async function loadAiConfig(
     customObjective: row.custom_objective ?? '',
     additionalInstructions: row.additional_instructions ?? '',
     operatingMode: row.operating_mode ?? 'suggestion',
+    activeSchedule: row.active_schedule ?? 'always',
     timezone: row.timezone ?? 'America/Santiago',
     afterHoursBehavior: row.after_hours_behavior ?? 'suggestions_only',
     afterHoursCoverageEnabled: row.after_hours_coverage_enabled ?? false,

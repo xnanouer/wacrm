@@ -27,8 +27,8 @@ Supabase Auth.
 ## Despliegue
 
 1. Revise y aplique las migraciones pendientes en staging, incluidas
-   `084_private_operational_media.sql` y
-   `085_platform_storage_monitor.sql`.
+   `092_paid_follow_up_agent.sql`, `093_ai_agent_active_schedule.sql` y
+   `094_ai_catalog_delivery_mode.sql`.
 2. Construya la imagen sin copiar archivos `.env`.
 3. Inicie los dos servicios y verifique `GET /api/health`.
 4. Coloque un proxy HTTPS delante del puerto 3000.
@@ -41,6 +41,7 @@ Un scheduler externo debe llamar con el encabezado
 `x-cron-secret: <AUTOMATION_CRON_SECRET>`:
 
 - cada minuto: `/api/automations/cron`
+- cada minuto: `/api/ai/follow-up/cron`
 - cada cinco minutos: `/api/flows/cron`
 - una vez al día: `/api/quotes/retention`
 - una vez al día: `/api/platform/storage/monitor`

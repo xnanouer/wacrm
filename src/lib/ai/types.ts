@@ -27,6 +27,7 @@ export interface AiConfig {
   autoReplyMaxPerConversation: number | null;
   catalogAiEnabled: boolean;
   catalogAiAutoSend: boolean;
+  catalogDeliveryMode: import('./agent-schema').AiCatalogDeliveryMode;
   catalogAiMaxItems: number;
   responseMode: AiResponseMode;
   /** Platform-owned speech configuration. These values are resolved only on
@@ -48,6 +49,7 @@ export interface AiConfig {
   customObjective: string;
   additionalInstructions: string;
   operatingMode: 'suggestion' | 'semi_automatic' | 'automatic';
+  activeSchedule: import('./agent-schema').AiActiveSchedule;
   timezone: string;
   afterHoursBehavior: string;
   afterHoursCoverageEnabled: boolean;
@@ -77,6 +79,7 @@ export interface AiConfig {
 }
 
 export const AI_CONFIG_RUNTIME_DEFAULTS = {
+  catalogDeliveryMode: 'summary_first' as const,
   agentName: 'Asistente Nexora',
   agentTitle: 'Asistente virtual',
   language: 'es-CL',
@@ -90,6 +93,7 @@ export const AI_CONFIG_RUNTIME_DEFAULTS = {
   customObjective: '',
   additionalInstructions: '',
   operatingMode: 'suggestion' as const,
+  activeSchedule: 'always' as const,
   timezone: 'America/Santiago',
   afterHoursBehavior: 'suggestions_only',
   afterHoursCoverageEnabled: false,

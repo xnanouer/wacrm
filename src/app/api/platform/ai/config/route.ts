@@ -198,6 +198,7 @@ export async function PATCH(request: Request) {
           autoReplyMaxPerConversation: 1,
           catalogAiEnabled: false,
           catalogAiAutoSend: false,
+          catalogDeliveryMode: 'summary_first',
           catalogAiMaxItems: 3,
           responseMode: 'text',
           embeddingsApiKey: null,

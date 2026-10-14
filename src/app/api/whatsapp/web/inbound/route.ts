@@ -12,6 +12,7 @@ import {
   resolveReturningAgent,
 } from '@/lib/tickets/reopen-assignment';
 import { whatsappWebAckToStatus } from '@/lib/whatsapp/message-status';
+import { linkedDeviceOutboundState } from '@/lib/whatsapp/linked-device-outbound';
 import { prepareOutboundMediaUrl } from '@/lib/storage/private-media-server';
 import { isWhatsAppBridgeRequestAuthorized } from '@/lib/whatsapp/bridge-auth';
 import { visibleMediaText } from '@/lib/inbox/media-text';
@@ -222,10 +223,18 @@ async function ingest(event: InboundBody) {
 
   if (event.direction === 'outbound_device') {
     const status = whatsappWebAckToStatus(event.ack ?? 1) ?? 'sent';
+    const syncedState = linkedDeviceOutboundState({
+      assignedAgentId: conversation.assigned_agent_id,
+      contentType,
+      text,
+      receivedAt,
+      unreadCount: conversation.unread_count,
+      updatedAt: new Date().toISOString(),
+    });
     const { error: outboundError } = await db.from('messages').insert({
       conversation_id: conversation.id,
       sender_type: 'agent',
-      sender_id: conversation.assigned_agent_id || config.user_id,
+      sender_id: syncedState.senderId,
       content_type: contentType,
       content_text: text || null,
       media_url: event.mediaUrl || null,
@@ -241,18 +250,7 @@ async function ingest(event: InboundBody) {
 
     const { error: conversationError } = await db
       .from('conversations')
-      .update({
-        status: 'open',
-        assigned_agent_id: conversation.assigned_agent_id || config.user_id,
-        last_message_text: text || `[${contentType}]`,
-        last_message_at: receivedAt,
-        unread_count: conversation.unread_count || 0,
-        closed_at: null,
-        closed_by_user_id: null,
-        waiting_since: null,
-        status_changed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(syncedState.conversationPatch)
       .eq('id', conversation.id);
     if (conversationError) throw conversationError;
 

@@ -35,6 +35,7 @@ import {
   Plus,
   X,
   ClipboardCheck,
+  CircleCheckBig,
   Eye,
   ReceiptText,
   ScrollText,
@@ -328,6 +329,9 @@ export function ContactSidebar({
   const qualificationPercent = Math.round(
     (qualificationCompleted / Math.max(1, qualificationValues.length)) * 100
   );
+  const latestResolution = events.find(
+    (event) => event.event_type === 'closed' && event.note?.trim()
+  );
 
   function yesNo(value: boolean | null): string {
     if (value === null) return 'Por confirmar';
@@ -395,6 +399,42 @@ export function ContactSidebar({
               )}
             </div>
           </div>
+
+          {latestResolution ? (
+            <section className="rounded-xl border border-emerald-500/30 bg-emerald-500/8 p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15">
+                  <CircleCheckBig className="size-4.5 text-emerald-600 dark:text-emerald-300" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold tracking-wide text-emerald-700 uppercase dark:text-emerald-300">
+                    {conversation?.status === 'closed'
+                      ? 'Resolución del caso'
+                      : 'Última resolución registrada'}
+                  </p>
+                  <p className="text-foreground mt-2 text-sm leading-5 whitespace-pre-wrap">
+                    {latestResolution.note}
+                  </p>
+                  <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
+                    <span>
+                      Resuelto por{' '}
+                      <strong className="text-foreground font-medium">
+                        {latestResolution.actor?.full_name ??
+                          'un integrante del equipo'}
+                      </strong>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <time dateTime={latestResolution.created_at}>
+                      {format(
+                        new Date(latestResolution.created_at),
+                        'dd/MM/yyyy HH:mm'
+                      )}
+                    </time>
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <section className="border-border bg-background rounded-xl border p-3">
             <h3 className="text-muted-foreground mb-2 text-[11px] font-semibold tracking-wider uppercase">
@@ -854,6 +894,9 @@ export function ContactSidebar({
                       {note.body}
                     </p>
                     <p className="text-muted-foreground mt-1 text-[10px]">
+                      {note.author?.full_name
+                        ? `${note.author.full_name} · `
+                        : ''}
                       {format(new Date(note.created_at), 'dd/MM/yyyy HH:mm')}
                     </p>
                   </div>
@@ -911,6 +954,9 @@ export function ContactSidebar({
                       {ticketEventLabel(event)}
                     </p>
                     <p className="text-muted-foreground mt-0.5 text-[10px]">
+                      {event.actor?.full_name
+                        ? `${event.actor.full_name} · `
+                        : ''}
                       {format(new Date(event.created_at), 'dd/MM/yyyy HH:mm')}
                     </p>
                     {event.note && (

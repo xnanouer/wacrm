@@ -2,6 +2,12 @@ import { CATALOG_ADDON, CATALOG_PLAN_LIMITS } from '@/lib/catalog/config';
 
 export const EXTRA_USER_PRICE = 12_990;
 export const EXTRA_CONNECTION_PRICE = 18_990;
+export const FOLLOW_UP_AGENT_ADDON = {
+  code: 'follow_up_agent',
+  name: 'Agente de Seguimiento Pro',
+  monthlyPrice: 29_990,
+  includedPoints: 2_000,
+} as const;
 export const TRIAL_DAYS = 3;
 export const POINT_PLAN_RECOMMENDATION_TOLERANCE = 0.05;
 

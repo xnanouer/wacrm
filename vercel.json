@@ -10,6 +10,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/ai/follow-up/cron",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/quotes/retention",
       "schedule": "30 5 * * *"
     },

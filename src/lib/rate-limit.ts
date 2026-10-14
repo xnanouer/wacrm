@@ -155,6 +155,10 @@ export const RATE_LIMITS = {
    *  while still bounding accidental abuse from a script run in a
    *  loop or a compromised admin session spamming role flips. */
   adminAction: { limit: 30, windowMs: 60_000 },
+  /** Catalog galleries allow up to 50 images per vehicle. The item id is part
+   *  of the caller key so a legitimate folder upload can finish while a
+   *  runaway client is still bounded per vehicle. */
+  catalogImageUpload: { limit: 60, windowMs: 60_000 },
   /** Ticket workflow mutations. Fast enough for a busy inbox while
    *  bounding accidental action loops from a compromised client. */
   ticketAction: { limit: 120, windowMs: 60_000 },

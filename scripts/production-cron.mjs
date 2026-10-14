@@ -23,6 +23,11 @@ const jobs = [
     due: (now) => now.getUTCMinutes() % 5 === 0,
   },
   {
+    name: 'follow-up-agent',
+    path: '/api/ai/follow-up/cron',
+    due: () => true,
+  },
+  {
     name: 'quotation-retention',
     path: '/api/quotes/retention',
     due: (now) => now.getUTCHours() === 5 && now.getUTCMinutes() === 30,

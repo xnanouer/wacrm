@@ -1347,7 +1347,17 @@ export function MessageThread({
             <button
               type="button"
               onClick={async () => {
-                const ticket = await performTicketAction({ action: 'accept' });
+                if (
+                  !window.confirm(
+                    '¿Quieres tomar este lead? La IA se pausará y el lead quedará asignado a ti.'
+                  )
+                ) {
+                  return;
+                }
+                const ticket = await performTicketAction({
+                  action: 'accept',
+                  confirmed: true,
+                });
                 if (ticket) {
                   toast.success(
                     'Lead tomado y protegido. Si el cliente vuelve después de resolverlo, regresará a tu bandeja.'

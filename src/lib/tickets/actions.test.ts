@@ -4,14 +4,21 @@ import { parseTicketAction, TicketActionError } from './actions';
 
 describe('parseTicketAction', () => {
   it('parses accept and every supported status', () => {
-    expect(parseTicketAction({ action: 'accept' })).toEqual({
+    expect(parseTicketAction({ action: 'accept', confirmed: true })).toEqual({
       action: 'accept',
+      confirmed: true,
     });
     expect(parseTicketAction({ action: 'status', status: 'waiting' })).toEqual({
       action: 'status',
       status: 'waiting',
       note: undefined,
     });
+  });
+
+  it('rejects an accept action without explicit confirmation', () => {
+    expect(() => parseTicketAction({ action: 'accept' })).toThrow(
+      'Debes confirmar expresamente'
+    );
   });
 
   it('trims transfer observations', () => {

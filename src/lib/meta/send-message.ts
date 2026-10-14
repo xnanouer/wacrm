@@ -50,6 +50,7 @@ export async function sendSocialMessageToConversation(
     replyToMessageId?: string | null;
     senderId?: string | null;
     senderType?: 'agent' | 'bot';
+    automationOrigin?: 'follow_up_agent' | null;
   }
 ): Promise<{ messageId: string; metaMessageId: string }> {
   const text = input.contentText?.trim();
@@ -179,6 +180,7 @@ export async function sendSocialMessageToConversation(
         message_id: message.metaMessageId,
         status: 'sent',
         reply_to_message_id: message.replyToMessageId || null,
+        automation_origin: input.automationOrigin ?? null,
       })
       .select('id')
       .single();

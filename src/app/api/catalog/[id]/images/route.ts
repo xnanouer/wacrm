@@ -38,8 +38,8 @@ export async function POST(
     }
 
     const limit = checkRateLimit(
-      `catalog-image:${ctx.userId}`,
-      RATE_LIMITS.adminAction
+      `catalog-image:${ctx.userId}:${id}`,
+      RATE_LIMITS.catalogImageUpload
     );
     if (!limit.success) return rateLimitResponse(limit);
 
@@ -65,6 +65,33 @@ export async function POST(
       return NextResponse.json(
         { error: 'Los datos de la imagen no son válidos.' },
         { status: 400 }
+      );
+    }
+
+    const { data: canManage, error: permissionError } = await ctx.supabase.rpc(
+      'catalog_can_manage_item',
+      { target_item_id: id }
+    );
+    if (permissionError || canManage !== true) {
+      return NextResponse.json(
+        { error: 'No tienes permisos para modificar estas fotografías.' },
+        { status: 403 }
+      );
+    }
+
+    const admin = supabaseAdmin();
+    const { count: currentImageCount, error: countError } = await admin
+      .from('catalog_item_images')
+      .select('id', { count: 'exact', head: true })
+      .eq('account_id', ctx.accountId)
+      .eq('catalog_item_id', id);
+    if (countError) throw countError;
+    if ((currentImageCount ?? 0) >= MAX_IMAGES_PER_ITEM) {
+      return NextResponse.json(
+        {
+          error: `La galería admite hasta ${MAX_IMAGES_PER_ITEM} fotografías.`,
+        },
+        { status: 409 }
       );
     }
 

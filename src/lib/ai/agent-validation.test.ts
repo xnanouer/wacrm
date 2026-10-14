@@ -5,6 +5,22 @@ vi.mock('server-only', () => ({}));
 import { parseStructuredAiConfig } from './agent-validation';
 
 describe('parseStructuredAiConfig operating mode', () => {
+  it('keeps 24/7 as the safe default and accepts weekend-only operation', () => {
+    expect(parseStructuredAiConfig({}).active_schedule).toBe('always');
+    expect(
+      parseStructuredAiConfig({ active_schedule: 'weekends' }).active_schedule
+    ).toBe('weekends');
+  });
+
+  it('rejects an invalid timezone for scheduled operation', () => {
+    expect(() =>
+      parseStructuredAiConfig({
+        active_schedule: 'weekends',
+        timezone: 'Zona/Inexistente',
+      })
+    ).toThrow('La zona horaria no es válida.');
+  });
+
   it('enables automatic replies only when the agent and automatic mode are active', () => {
     const config = parseStructuredAiConfig({
       is_active: true,
@@ -77,6 +93,7 @@ describe('parseStructuredAiConfig operating mode', () => {
       operating_mode: 'automatic',
       catalog_ai_enabled: true,
       catalog_ai_auto_send: true,
+      catalog_delivery_mode: 'photos_immediately',
       permissions: {
         query_catalog: true,
         suggest_catalog_items: true,
@@ -85,6 +102,7 @@ describe('parseStructuredAiConfig operating mode', () => {
 
     expect(config.catalog_ai_enabled).toBe(true);
     expect(config.catalog_ai_auto_send).toBe(true);
+    expect(config.catalog_delivery_mode).toBe('photos_immediately');
   });
 
   it('disables automatic catalog delivery in suggestion mode', () => {
@@ -101,5 +119,6 @@ describe('parseStructuredAiConfig operating mode', () => {
 
     expect(config.catalog_ai_enabled).toBe(true);
     expect(config.catalog_ai_auto_send).toBe(false);
+    expect(config.catalog_delivery_mode).toBe('summary_first');
   });
 });

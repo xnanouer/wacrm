@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   Copy,
   Filter,
+  FolderUp,
   Grid2X2,
   List,
   Loader2,
@@ -29,6 +30,8 @@ import {
 import { toast } from 'sonner';
 
 import { CatalogVehicleVisual } from '@/components/catalog/catalog-vehicle-visual';
+import { CatalogImportDialog } from '@/components/catalog/catalog-import-dialog';
+import { CatalogPhotoFolderDialog } from '@/components/catalog/catalog-photo-folder-dialog';
 import { CatalogSendDialog } from '@/components/catalog/catalog-send-dialog';
 import { VehicleFormDialog } from '@/components/catalog/vehicle-form-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -132,6 +135,8 @@ export function CatalogView({
   const [location, setLocation] = useState('all');
   const [view, setView] = useState<ViewMode>('grid');
   const [formOpen, setFormOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [photoFolderOpen, setPhotoFolderOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<CatalogVehicle | null>(
     null
   );
@@ -462,10 +467,19 @@ export function CatalogView({
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
-              onClick={() => toast.info('Próximamente')}
+              disabled={!canCreate || remaining === 0}
+              onClick={() => setImportOpen(true)}
             >
               <PackagePlus className="size-4" />
-              Importar
+              {remaining === 0 ? 'Límite alcanzado' : 'Importar'}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!canCreate || vehicles.length === 0}
+              onClick={() => setPhotoFolderOpen(true)}
+            >
+              <FolderUp className="size-4" />
+              Cargar fotos
             </Button>
             <Button
               size="lg"
@@ -755,6 +769,19 @@ export function CatalogView({
         onOpenChange={setFormOpen}
         vehicle={editingVehicle}
         onSaved={refreshCatalog}
+      />
+      <CatalogImportDialog
+        open={importOpen}
+        remaining={remaining}
+        onOpenChange={setImportOpen}
+        onImported={refreshCatalog}
+      />
+      <CatalogPhotoFolderDialog
+        open={photoFolderOpen}
+        vehicles={vehicles}
+        canAdminister={canAdminister}
+        onOpenChange={setPhotoFolderOpen}
+        onUploaded={refreshCatalog}
       />
       <VehicleDetailsDialog
         vehicle={selectedVehicle}

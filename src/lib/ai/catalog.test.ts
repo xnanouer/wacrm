@@ -8,8 +8,11 @@ vi.mock('@/lib/whatsapp/send-message', () => ({
 import {
   buildCatalogCaption,
   buildCatalogContext,
+  buildCatalogSummary,
   hasCatalogCardsInConversation,
+  isCatalogMediaRequest,
   isCatalogRequest,
+  isCatalogSelection,
   parseCatalogMaxPrice,
   rankCatalogCandidates,
   selectPreviouslyShownCandidate,
@@ -63,6 +66,15 @@ describe('AI catalog request detection', () => {
     expect(isCatalogRequest('Hola, necesito ayuda con mi cuenta')).toBe(false);
   });
 
+  it('distinguishes a photo request from a catalog summary request', () => {
+    expect(isCatalogMediaRequest('¿Me puedes enviar el catálogo?')).toBe(false);
+    expect(isCatalogMediaRequest('Mándame fotos del BAIC X55')).toBe(true);
+    expect(isCatalogMediaRequest('Muéstrame la galería del segundo')).toBe(
+      true
+    );
+    expect(isCatalogMediaRequest('Todavía no me envíes fotos')).toBe(false);
+  });
+
   it('does not send cards for early, generic vehicle interest', () => {
     expect(isCatalogRequest('Hola, quiero comprar un auto')).toBe(false);
     expect(isCatalogRequest('Me interesa un SUV')).toBe(false);
@@ -88,6 +100,9 @@ describe('AI catalog request detection', () => {
         },
       ])
     ).toBe(true);
+    expect(isCatalogSelection('2')).toBe(true);
+    expect(isCatalogSelection('el segundo')).toBe(true);
+    expect(isCatalogRequest('2', { allowSelection: true })).toBe(true);
   });
 
   it('understands common Chilean maximum-price formats', () => {
@@ -159,6 +174,17 @@ describe('AI catalog ranking and privacy', () => {
     ).toEqual(['newer', 'older']);
   });
 
+  it('returns only the named vehicle for a specific photo request', () => {
+    const baic = candidate({ id: 'baic', make: 'BAIC', model: 'X55' });
+    const bmw = candidate({ id: 'bmw', make: 'BMW', model: 'I180' });
+
+    expect(
+      rankCatalogCandidates([baic, bmw], 'Envíame fotos del BMW I180', 3).map(
+        (item) => item.id
+      )
+    ).toEqual(['bmw']);
+  });
+
   it('resolves a named or ordinal choice to one previously shown vehicle', () => {
     const baic = candidate({ id: 'baic', make: 'BAIC', model: 'X55' });
     const bmw = candidate({ id: 'bmw', make: 'BMW', model: 'I180' });
@@ -197,5 +223,20 @@ describe('AI catalog ranking and privacy', () => {
     expect(caption).toContain('Motor: 2.5');
     expect(caption).toContain('Color: Blanco');
     expect(caption).toContain('Financiamiento sujeto a evaluación.');
+  });
+
+  it('builds a numbered summary that asks the customer to choose before photos', () => {
+    const summary = buildCatalogSummary([
+      candidate({ id: 'baic', make: 'BAIC', model: 'X55' }),
+      candidate({ id: 'bmw', make: 'BMW', model: 'I180' }),
+    ]);
+
+    expect(summary).toContain('Vehículos disponibles');
+    expect(summary).toContain('1. *BAIC X55 Limited*');
+    expect(summary).toContain('2. *BMW I180 Limited*');
+    expect(summary).toContain('número o modelo');
+    expect(
+      hasCatalogCardsInConversation([{ role: 'assistant', content: summary }])
+    ).toBe(true);
   });
 });

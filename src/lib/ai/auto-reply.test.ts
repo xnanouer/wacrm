@@ -10,6 +10,9 @@ const h = vi.hoisted(() => ({
   hasCatalogCardsInConversation: vi.fn(),
   findCatalogCandidates: vi.fn(),
   buildCatalogContext: vi.fn(),
+  buildCatalogSummary: vi.fn(),
+  isCatalogMediaRequest: vi.fn(),
+  isCatalogSelection: vi.fn(),
   loadCatalogCandidatesByIds: vi.fn(),
   sendCatalogCandidates: vi.fn(),
   sendMessageToConversation: vi.fn(),
@@ -41,6 +44,9 @@ vi.mock('./catalog', () => ({
   hasCatalogCardsInConversation: h.hasCatalogCardsInConversation,
   findCatalogCandidates: h.findCatalogCandidates,
   buildCatalogContext: h.buildCatalogContext,
+  buildCatalogSummary: h.buildCatalogSummary,
+  isCatalogMediaRequest: h.isCatalogMediaRequest,
+  isCatalogSelection: h.isCatalogSelection,
   loadCatalogCandidatesByIds: h.loadCatalogCandidatesByIds,
   sendCatalogCandidates: h.sendCatalogCandidates,
 }));
@@ -202,6 +208,13 @@ beforeEach(() => {
     candidates: [],
   });
   h.buildCatalogContext.mockReturnValue('catalog context');
+  h.buildCatalogSummary.mockReturnValue(
+    '🚘 *Vehículos disponibles:*\n\n1. *Toyota RAV4*\n\nRespóndeme con el número o modelo y te envío sus fotos.'
+  );
+  h.isCatalogMediaRequest.mockImplementation((message: string) =>
+    /fotos?|imágenes?|galería/i.test(message)
+  );
+  h.isCatalogSelection.mockReturnValue(false);
   h.loadCatalogCandidatesByIds.mockResolvedValue([]);
   h.sendCatalogCandidates.mockResolvedValue(undefined);
   h.generateReply.mockResolvedValue({
@@ -268,6 +281,25 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       'operation-1',
       expect.any(Object)
     );
+  });
+
+  it('does not consume points outside a weekend-only schedule', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-05T15:00:00Z'));
+    h.reserveAiPoints.mockClear();
+    h.buildConversationContext.mockClear();
+    h.sendMessageToConversation.mockClear();
+    h.loadAiConfig.mockResolvedValue(aiConfig({ activeSchedule: 'weekends' }));
+
+    try {
+      await dispatchInboundToAiReply(ARGS);
+
+      expect(h.buildConversationContext).not.toHaveBeenCalled();
+      expect(h.reserveAiPoints).not.toHaveBeenCalled();
+      expect(h.sendMessageToConversation).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('routes an automatic reply through the connected social channel', async () => {
@@ -368,6 +400,7 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       aiConfig({
         catalogAiEnabled: true,
         catalogAiAutoSend: true,
+        catalogDeliveryMode: 'photos_immediately',
         permissions: {
           ...AI_CONFIG_RUNTIME_DEFAULTS.permissions,
           query_catalog: true,
@@ -466,6 +499,84 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       expect.objectContaining({
         metadata: expect.objectContaining({ outcome: 'reply_generated' }),
       })
+    );
+  });
+
+  it('sends a numbered summary first and does not attach photos', async () => {
+    const candidates = [
+      { id: 'vehicle-1', make: 'Toyota', model: 'RAV4', year: 2024 },
+      { id: 'vehicle-2', make: 'BAIC', model: 'X55', year: 2023 },
+    ];
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        catalogAiEnabled: true,
+        catalogAiAutoSend: true,
+        catalogDeliveryMode: 'summary_first',
+        permissions: {
+          ...AI_CONFIG_RUNTIME_DEFAULTS.permissions,
+          query_catalog: true,
+          suggest_catalog_items: true,
+        },
+      })
+    );
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'Envíame el catálogo disponible' },
+    ]);
+    h.findCatalogCandidates.mockResolvedValue({
+      requested: true,
+      candidates,
+    });
+    h.loadCatalogCandidatesByIds.mockResolvedValue(candidates);
+
+    await dispatchInboundToAiReply(ARGS);
+
+    expect(h.sendMessageToConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      expect.objectContaining({
+        contentText: expect.stringContaining('Vehículos disponibles'),
+      })
+    );
+    expect(h.sendCatalogCandidates).not.toHaveBeenCalled();
+  });
+
+  it('sends the selected vehicle gallery when the customer replies with its number', async () => {
+    const candidate = {
+      id: 'vehicle-2',
+      make: 'BAIC',
+      model: 'X55',
+      year: 2023,
+    };
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        catalogAiEnabled: true,
+        catalogAiAutoSend: true,
+        catalogDeliveryMode: 'summary_first',
+        permissions: {
+          ...AI_CONFIG_RUNTIME_DEFAULTS.permissions,
+          query_catalog: true,
+          suggest_catalog_items: true,
+        },
+      })
+    );
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'assistant',
+        content: '🚘 Vehículos disponibles:\n1. Toyota RAV4\n2. BAIC X55',
+      },
+      { role: 'user', content: '2' },
+    ]);
+    h.isCatalogSelection.mockReturnValue(true);
+    h.findCatalogCandidates.mockResolvedValue({
+      requested: true,
+      candidates: [candidate],
+    });
+    h.loadCatalogCandidatesByIds.mockResolvedValue([candidate]);
+
+    await dispatchInboundToAiReply(ARGS);
+
+    expect(h.sendCatalogCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({ candidates: [candidate] })
     );
   });
 

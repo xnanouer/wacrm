@@ -487,6 +487,7 @@ export function AiConfig() {
             config.permissions.query_catalog &&
             config.permissions.suggest_catalog_items,
           catalog_ai_auto_send: config.catalog_ai_auto_send,
+          catalog_delivery_mode: config.catalog_delivery_mode,
           business_hours: hours,
           enabled_connections: enabledConnections,
           selected_coverage_user_ids: selectedCoverageUserIds,
@@ -880,6 +881,34 @@ export function AiConfig() {
                             }
                           />
                         </div>
+                        {config.catalog_ai_auto_send && (
+                          <FormField label="Forma de enviar el catálogo">
+                            <select
+                              className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
+                              value={config.catalog_delivery_mode}
+                              onChange={(event) =>
+                                update(
+                                  'catalog_delivery_mode',
+                                  event.target
+                                    .value as StructuredAiConfig['catalog_delivery_mode']
+                                )
+                              }
+                              disabled={disabled}
+                            >
+                              <option value="summary_first">
+                                Resumen primero (recomendado)
+                              </option>
+                              <option value="photos_immediately">
+                                Enviar fotos inmediatamente
+                              </option>
+                            </select>
+                            <FieldHelp>
+                              En resumen primero, la IA muestra una lista
+                              numerada y envía la galería solo cuando el cliente
+                              elige un vehículo o pide sus fotos.
+                            </FieldHelp>
+                          </FormField>
+                        )}
                       </div>
                       <FormField label="Respuestas por chat">
                         <div className="border-border mb-3 flex items-center justify-between rounded-xl border px-4 py-3">
@@ -1170,8 +1199,32 @@ export function AiConfig() {
                 <SectionTitle
                   icon={Clock3}
                   title="Horarios"
-                  description="Define la jornada de referencia y la zona horaria del agente."
+                  description="Define cuándo responde automáticamente y la jornada de referencia para la cobertura."
                 />
+                <FormField label="Disponibilidad automática del agente">
+                  <select
+                    className="border-input bg-background h-11 w-full rounded-md border px-3 text-sm"
+                    value={config.active_schedule}
+                    onChange={(event) =>
+                      update(
+                        'active_schedule',
+                        event.target
+                          .value as StructuredAiConfig['active_schedule']
+                      )
+                    }
+                    disabled={disabled}
+                  >
+                    <option value="always">24/7 — Todos los días</option>
+                    <option value="weekends">
+                      Solo fines de semana — Sábado y domingo 24 horas
+                    </option>
+                  </select>
+                  <FieldHelp>
+                    Controla las respuestas automáticas en WhatsApp, Facebook e
+                    Instagram. Fuera del horario los mensajes permanecen en la
+                    bandeja y no consumen puntos de IA.
+                  </FieldHelp>
+                </FormField>
                 <FormField label="Zona horaria">
                   <Input
                     value={config.timezone}
@@ -1179,7 +1232,23 @@ export function AiConfig() {
                     disabled={disabled}
                     maxLength={80}
                   />
+                  {config.active_schedule === 'weekends' && (
+                    <FieldHelp>
+                      El fin de semana se calcula con esta zona horaria. Para
+                      Chile utiliza America/Santiago.
+                    </FieldHelp>
+                  )}
                 </FormField>
+                <div>
+                  <h3 className="text-sm font-semibold">
+                    Jornada de referencia del equipo
+                  </h3>
+                  <p className="text-muted-foreground mt-1 text-xs leading-5">
+                    Se utiliza para la cobertura IA de conversaciones asignadas
+                    a ejecutivos. No modifica la disponibilidad automática
+                    seleccionada arriba.
+                  </p>
+                </div>
                 <div className="space-y-3">
                   {hours.map((hour, index) => (
                     <div

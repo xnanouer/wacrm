@@ -30,6 +30,14 @@ export interface AccountPlanSummary {
     extraUnits: number;
   } | null;
   aiUsage: AiUsageSummary | null;
+  addons: {
+    followUpAgent: {
+      status: 'pending' | 'active' | 'past_due' | 'canceled' | 'suspended';
+      monthlyPrice: number;
+      includedPoints: number;
+      currentPeriodEndsAt: string | null;
+    } | null;
+  };
 }
 
 interface CatalogCapacityRow {
@@ -79,26 +87,45 @@ async function safelyLoadCatalogUsage(
 export async function getAccountPlanSummary(
   ctx: AccountContext
 ): Promise<AccountPlanSummary> {
-  const [planResult, usersResult, channelCapacity, aiUsage, catalog] =
-    await Promise.all([
-      ctx.supabase
-        .from('saas_plans')
-        .select('code, name, monthly_price, currency, max_users, max_channels')
-        .eq('code', ctx.account.plan_code)
-        .maybeSingle(),
-      ctx.supabase
-        .from('profiles')
-        .select('user_id', { count: 'exact', head: true })
-        .eq('account_id', ctx.accountId),
-      getAccountChannelCapacity(ctx.accountId),
-      safelyLoadAiUsage(ctx.accountId),
-      safelyLoadCatalogUsage(ctx),
-    ]);
+  const [
+    planResult,
+    usersResult,
+    channelCapacity,
+    aiUsage,
+    catalog,
+    addonsResult,
+  ] = await Promise.all([
+    ctx.supabase
+      .from('saas_plans')
+      .select('code, name, monthly_price, currency, max_users, max_channels')
+      .eq('code', ctx.account.plan_code)
+      .maybeSingle(),
+    ctx.supabase
+      .from('profiles')
+      .select('user_id', { count: 'exact', head: true })
+      .eq('account_id', ctx.accountId),
+    getAccountChannelCapacity(ctx.accountId),
+    safelyLoadAiUsage(ctx.accountId),
+    safelyLoadCatalogUsage(ctx),
+    ctx.supabase
+      .from('account_addons')
+      .select(
+        'addon_code, status, monthly_price_snapshot, included_points, current_period_ends_at'
+      )
+      .eq('account_id', ctx.accountId),
+  ]);
 
-  const firstError = [planResult.error, usersResult.error].find(Boolean);
+  const firstError = [
+    planResult.error,
+    usersResult.error,
+    addonsResult.error,
+  ].find(Boolean);
   if (firstError) throw firstError;
 
   const plan = planResult.data;
+  const followUpAgent = (addonsResult.data ?? []).find(
+    (addon) => addon.addon_code === 'follow_up_agent'
+  );
   return {
     accountName: ctx.account.name,
     planCode: ctx.account.plan_code,
@@ -124,5 +151,17 @@ export async function getAccountPlanSummary(
     },
     catalog,
     aiUsage,
+    addons: {
+      followUpAgent: followUpAgent
+        ? {
+            status: followUpAgent.status as NonNullable<
+              AccountPlanSummary['addons']['followUpAgent']
+            >['status'],
+            monthlyPrice: numberValue(followUpAgent.monthly_price_snapshot),
+            includedPoints: numberValue(followUpAgent.included_points),
+            currentPeriodEndsAt: followUpAgent.current_period_ends_at ?? null,
+          }
+        : null,
+    },
   };
 }

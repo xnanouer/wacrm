@@ -1,5 +1,6 @@
 export const AI_POINT_ACTIONS = [
   'automatic_text_reply',
+  'follow_up_reply',
   'suggested_reply',
   'conversation_summary',
   'lead_analysis',

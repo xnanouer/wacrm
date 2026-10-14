@@ -197,7 +197,27 @@ export function normalizeCatalogSearch(value: string): string {
 
 export function isCatalogSelection(message: string): boolean {
   const normalized = normalizeCatalogSearch(message);
-  return /\b(me interesa|me interesan|elijo|elegiria|me quedo|prefiero|quiero (?:ese|esa|este|esta|el|la)|ese vehiculo|esa camioneta)\b/.test(
+  return (
+    /\b(me interesa|me interesan|elijo|elegiria|me quedo|prefiero|quiero (?:ese|esa|este|esta|el|la)|ese vehiculo|esa camioneta)\b/.test(
+      normalized
+    ) ||
+    /^(?:el |la |opcion |numero )?(?:1|2|3|4|5|primero|primera|segundo|segunda|tercero|tercera|cuarto|cuarta|quinto|quinta)$/.test(
+      normalized
+    )
+  );
+}
+
+export function isCatalogMediaRequest(message: string): boolean {
+  const normalized = normalizeCatalogSearch(message);
+  if (!normalized) return false;
+  if (
+    /\b(no me envies|no envies|no quiero recibir|no quiero ver|sin fotos|sin imagenes|todavia no|aun no)\b/.test(
+      normalized
+    )
+  ) {
+    return false;
+  }
+  return /\b(foto|fotos|fotografia|fotografias|imagen|imagenes|galeria)\b/.test(
     normalized
   );
 }
@@ -208,7 +228,7 @@ export function hasCatalogCardsInConversation(
   return messages.some(
     (message) =>
       message.role === 'assistant' &&
-      /\b(catalogo mostrado por nexora|valor vehiculo|precio lista|pie inicial|kilometraje)\b/.test(
+      /\b(catalogo mostrado por nexora|vehiculos disponibles|valor vehiculo|precio lista|pie inicial|kilometraje)\b/.test(
         normalizeCatalogSearch(message.content)
       )
   );
@@ -363,8 +383,7 @@ export function rankCatalogCandidates(
   const fuel = requestedFuel(message);
   const transmission = requestedTransmission(message);
   const normalized = normalizeCatalogSearch(message);
-  const requestsCatalogMedia =
-    /\b(foto|fotos|fotografia|fotografias|imagen|imagenes)\b/.test(normalized);
+  const requestsCatalogMedia = isCatalogMediaRequest(message);
   const allowsGeneralCatalog =
     requestsCatalogMedia ||
     /\b(catalogo|inventario|opciones|stock)\b/.test(normalized) ||
@@ -432,10 +451,13 @@ export function rankCatalogCandidates(
         Date.parse(b.candidate.updatedAt) - Date.parse(a.candidate.updatedAt)
     );
 
+  const hasTextMatch = scored.some((row) => row.score > 0);
   return (
-    allowsGeneralCatalog || hasStructuredPreference
-      ? scored
-      : scored.filter((row) => row.score > 0)
+    requestsCatalogMedia && hasTextMatch
+      ? scored.filter((row) => row.score > 0)
+      : allowsGeneralCatalog || hasStructuredPreference
+        ? scored
+        : scored.filter((row) => row.score > 0)
   )
     .slice(0, Math.min(5, Math.max(1, maxItems)))
     .map((row) => row.candidate);
@@ -456,7 +478,7 @@ export function selectPreviouslyShownCandidate(
     if (message.role !== 'assistant') return;
     const content = normalizeCatalogSearch(message.content);
     if (
-      !/\b(catalogo mostrado por nexora|valor vehiculo|precio lista|pie inicial|kilometraje)\b/.test(
+      !/\b(catalogo mostrado por nexora|vehiculos disponibles|valor vehiculo|precio lista|pie inicial|kilometraje)\b/.test(
         content
       )
     ) {
@@ -697,6 +719,51 @@ export function buildCatalogCaption(candidate: AiCatalogCandidate): string {
   ].filter(Boolean);
 
   return rows.join('\n').slice(0, 1024);
+}
+
+export function buildCatalogSummary(
+  candidates: AiCatalogCandidate[],
+  language = 'es-CL'
+): string {
+  if (candidates.length === 0) return '';
+
+  const rows = candidates.slice(0, 5).map((candidate, index) => {
+    const name = `${candidate.make} ${candidate.model} ${candidate.version}`
+      .replace(/\s+/g, ' ')
+      .trim();
+    const details = [
+      candidate.year,
+      `${candidate.mileage.toLocaleString('es-CL')} km`,
+      clp(candidate.displayedPrice),
+    ];
+    return `${index + 1}. *${name}* — ${details.join(' · ')}`;
+  });
+
+  if (language === 'en') {
+    return [
+      '🚘 *Available vehicles:*',
+      '',
+      ...rows,
+      '',
+      'Reply with the number or model and I will send you its photos.',
+    ].join('\n');
+  }
+  if (language === 'pt-BR') {
+    return [
+      '🚘 *Veículos disponíveis:*',
+      '',
+      ...rows,
+      '',
+      'Responda com o número ou modelo e eu enviarei as fotos.',
+    ].join('\n');
+  }
+  return [
+    '🚘 *Vehículos disponibles:*',
+    '',
+    ...rows,
+    '',
+    'Respóndeme con el número o modelo y te envío sus fotos.',
+  ].join('\n');
 }
 
 function commercialSnapshot(candidate: AiCatalogCandidate) {
