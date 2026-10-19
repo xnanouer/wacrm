@@ -249,15 +249,7 @@ export default function InboxPage() {
           activeConversation &&
           newMsg.conversation_id === activeConversation.id
         ) {
-          setMessages((prev) => {
-            // Avoid duplicates
-            if (prev.some((m) => m.id === newMsg.id)) return prev;
-            // Replace optimistic message if it exists
-            const withoutOptimistic = prev.filter(
-              (m) => !m.id.startsWith('temp-')
-            );
-            return [...withoutOptimistic, newMsg];
-          });
+          setMessages((prev) => mergeMessageDeltas(prev, [newMsg]));
         }
 
         // Update conversation list preview. We need to know *synchronously*
@@ -647,7 +639,7 @@ export default function InboxPage() {
   }, [router]);
 
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
-    setMessages(loaded);
+    setMessages((current) => mergeMessageDeltas(current, loaded));
   }, []);
 
   const handleNewMessage = useCallback((msg: Message) => {
@@ -659,9 +651,15 @@ export default function InboxPage() {
 
   const handleUpdateMessage = useCallback(
     (id: string, updates: Partial<Message>) => {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, ...updates } : m))
-      );
+      setMessages((prev) => {
+        const current = prev.find((message) => message.id === id);
+        if (!current) return prev;
+        const updated = { ...current, ...updates };
+        const withoutOldOrConfirmed = prev.filter(
+          (message) => message.id !== id && message.id !== updated.id
+        );
+        return mergeMessageDeltas(withoutOldOrConfirmed, [updated]);
+      });
     },
     []
   );

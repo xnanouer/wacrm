@@ -633,10 +633,18 @@ export function MessageThread({
           return;
         }
 
-        // Success — the realtime INSERT event will replace the temp bubble
-        // with the real DB row. If realtime hasn't arrived yet, at least
-        // flip status to 'sent' so the UI stops showing "sending".
-        onUpdateMessage(tempId, { status: 'sent' });
+        // Re-key the optimistic bubble immediately. Realtime and the
+        // background sync can arrive in either order; using the persisted
+        // row id lets the parent collapse both paths into one bubble.
+        onUpdateMessage(tempId, {
+          ...(typeof payload?.message_id === 'string'
+            ? { id: payload.message_id }
+            : {}),
+          ...(typeof payload?.whatsapp_message_id === 'string'
+            ? { message_id: payload.whatsapp_message_id }
+            : {}),
+          status: 'sent',
+        });
       } catch (err) {
         console.error('Failed to send message:', err);
         const reason = err instanceof Error ? err.message : 'network error';
@@ -704,7 +712,15 @@ export function MessageThread({
           return;
         }
 
-        onUpdateMessage(tempId, { status: 'sent' });
+        onUpdateMessage(tempId, {
+          ...(typeof data?.message_id === 'string'
+            ? { id: data.message_id }
+            : {}),
+          ...(typeof data?.whatsapp_message_id === 'string'
+            ? { message_id: data.whatsapp_message_id }
+            : {}),
+          status: 'sent',
+        });
       } catch (err) {
         console.error('Failed to send media:', err);
         const reason = err instanceof Error ? err.message : 'network error';
@@ -945,7 +961,15 @@ export function MessageThread({
           return;
         }
 
-        onUpdateMessage(tempId, { status: 'sent' });
+        onUpdateMessage(tempId, {
+          ...(typeof payload?.message_id === 'string'
+            ? { id: payload.message_id }
+            : {}),
+          ...(typeof payload?.whatsapp_message_id === 'string'
+            ? { message_id: payload.whatsapp_message_id }
+            : {}),
+          status: 'sent',
+        });
       } catch (err) {
         console.error('Failed to send template:', err);
         const reason = err instanceof Error ? err.message : 'network error';

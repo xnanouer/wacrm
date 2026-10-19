@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Conversation, Message } from '@/types';
-import { mergeConversationDeltas, mergeMessageDeltas } from './live-sync';
+import {
+  isMatchingOptimisticMessage,
+  mergeConversationDeltas,
+  mergeMessageDeltas,
+} from './live-sync';
 
 function conversation(
   id: string,
@@ -84,5 +88,71 @@ describe('mergeMessageDeltas', () => {
     expect(mergeMessageDeltas([pending], [delivered])[0]?.status).toBe(
       'delivered'
     );
+  });
+
+  it('replaces a matching optimistic outbound bubble with its persisted row', () => {
+    const optimistic: Message = {
+      ...message('temp-123', '2026-09-29T10:00:01.000Z', 'sent'),
+      sender_type: 'agent',
+      content_text: 'Hola, como estas?',
+    };
+    const persisted: Message = {
+      ...message('persisted-123', '2026-09-29T10:00:02.000Z', 'sent'),
+      sender_type: 'agent',
+      content_text: 'Hola, como estas?',
+      message_id: '3EB0ABC',
+    };
+
+    expect(isMatchingOptimisticMessage(optimistic, persisted)).toBe(true);
+    expect(mergeMessageDeltas([optimistic], [persisted])).toEqual([persisted]);
+  });
+
+  it('does not reconcile different outbound messages', () => {
+    const optimistic: Message = {
+      ...message('temp-123', '2026-09-29T10:00:01.000Z', 'sent'),
+      sender_type: 'agent',
+      content_text: 'Primer mensaje',
+    };
+    const persisted: Message = {
+      ...message('persisted-123', '2026-09-29T10:00:02.000Z', 'sent'),
+      sender_type: 'agent',
+      content_text: 'Segundo mensaje',
+    };
+
+    expect(isMatchingOptimisticMessage(optimistic, persisted)).toBe(false);
+    expect(mergeMessageDeltas([optimistic], [persisted])).toHaveLength(2);
+  });
+
+  it('matches two identical rapid sends to separate optimistic bubbles', () => {
+    const firstOptimistic: Message = {
+      ...message('temp-first', '2026-09-29T10:00:01.000Z', 'sent'),
+      sender_type: 'agent',
+      content_text: 'Igual',
+    };
+    const secondOptimistic: Message = {
+      ...message('temp-second', '2026-09-29T10:00:05.000Z', 'sent'),
+      sender_type: 'agent',
+      content_text: 'Igual',
+    };
+    const firstPersisted: Message = {
+      ...message('persisted-first', '2026-09-29T10:00:02.000Z', 'sent'),
+      sender_type: 'agent',
+      content_text: 'Igual',
+    };
+    const secondPersisted: Message = {
+      ...message('persisted-second', '2026-09-29T10:00:06.000Z', 'sent'),
+      sender_type: 'agent',
+      content_text: 'Igual',
+    };
+
+    const result = mergeMessageDeltas(
+      [firstOptimistic, secondOptimistic],
+      [firstPersisted, secondPersisted]
+    );
+
+    expect(result.map((item) => item.id)).toEqual([
+      'persisted-first',
+      'persisted-second',
+    ]);
   });
 });
