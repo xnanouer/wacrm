@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlarmClock,
   ArrowLeftRight,
+  Bot,
   CheckCircle2,
   Clock3,
   MessageCircleWarning,
@@ -163,8 +164,8 @@ export function TicketAnalyticsPanel() {
             Operación de tickets
           </h2>
           <p className="text-muted-foreground mt-1 text-sm">
-            Primera respuesta humana, resolución y carga por equipo con los
-            permisos de tu rol.
+            Compara la primera respuesta humana y de la IA, junto con la
+            resolución y carga por equipo.
           </p>
         </div>
         <Button
@@ -294,11 +295,10 @@ function SummaryCards({
         icon={CheckCircle2}
         subtitle={`Últimos ${rangeDays} días`}
       />
-      <MetricCard
-        title="Primera respuesta"
-        value={formatDuration(summary.avgFirstResponseMinutes)}
-        icon={TimerReset}
-        subtitle="Promedio humano"
+      <FirstResponseComparisonCard
+        humanMinutes={summary.avgFirstResponseMinutes}
+        aiMinutes={summary.avgAiFirstResponseMinutes}
+        aiAnsweredTickets={summary.aiAnsweredTickets}
       />
       <MetricCard
         title="Tiempo de resolución"
@@ -324,6 +324,53 @@ function SummaryCards({
         icon={AlarmClock}
         subtitle="Fecha anterior a hoy"
       />
+    </div>
+  );
+}
+
+function FirstResponseComparisonCard({
+  humanMinutes,
+  aiMinutes,
+  aiAnsweredTickets,
+}: {
+  humanMinutes: number | null;
+  aiMinutes: number | null;
+  aiAnsweredTickets: number;
+}) {
+  return (
+    <div className="surface-elevated group hover:border-primary/20 relative min-h-44 overflow-hidden rounded-3xl p-6 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5">
+      <div className="bg-primary/5 group-hover:bg-primary/10 pointer-events-none absolute -top-16 -right-12 size-32 rounded-full blur-3xl transition-colors" />
+      <div className="flex items-start justify-between">
+        <p className="text-muted-foreground relative text-sm font-semibold">
+          Primera respuesta
+        </p>
+        <div className="relative flex size-11 items-center justify-center rounded-2xl bg-violet-500/12 text-violet-400 ring-1 ring-violet-500/15">
+          <TimerReset className="size-[18px]" />
+        </div>
+      </div>
+      <div className="relative mt-5 grid grid-cols-2 gap-3">
+        <div>
+          <span className="text-muted-foreground text-xs font-medium">
+            Humana
+          </span>
+          <p className="text-foreground mt-1 text-2xl leading-none font-bold tracking-[-0.035em] tabular-nums">
+            {formatDuration(humanMinutes)}
+          </p>
+        </div>
+        <div className="border-border border-l pl-3">
+          <span className="text-primary flex items-center gap-1 text-xs font-semibold">
+            <Bot className="size-3.5" /> IA
+          </span>
+          <p className="text-foreground mt-1 text-2xl leading-none font-bold tracking-[-0.035em] tabular-nums">
+            {formatDuration(aiMinutes)}
+          </p>
+        </div>
+      </div>
+      <p className="text-muted-foreground relative mt-3 text-xs">
+        Mismo período y filtros · IA respondió primero en{' '}
+        {aiAnsweredTickets.toLocaleString()}{' '}
+        {aiAnsweredTickets === 1 ? 'ticket' : 'tickets'}
+      </p>
     </div>
   );
 }
@@ -691,7 +738,7 @@ function Legend({ color, label }: { color: string; label: string }) {
 
 function formatDuration(minutes: number | null): string {
   if (minutes === null) return '—';
-  if (minutes < 1) return '< 1 min';
+  if (minutes < 1) return `${Math.max(1, Math.round(minutes * 60))} s`;
   if (minutes < 60) return `${Math.round(minutes)} min`;
   const hours = minutes / 60;
   if (hours < 24) return `${hours.toFixed(hours < 10 ? 1 : 0)} h`;

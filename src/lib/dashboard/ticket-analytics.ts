@@ -16,6 +16,8 @@ export interface TicketAnalyticsSummary {
   pendingNow: number;
   closedTickets: number;
   avgFirstResponseMinutes: number | null;
+  avgAiFirstResponseMinutes: number | null;
+  aiAnsweredTickets: number;
   avgResolutionMinutes: number | null;
   transfers: number;
   customersWaiting: number;
@@ -70,17 +72,23 @@ export async function loadTicketAnalytics(
   db: DB,
   filters: TicketAnalyticsFilters
 ): Promise<TicketAnalytics> {
-  const { data, error } = await db.rpc('get_ticket_analytics', {
+  const parameters = {
     p_from: filters.from,
     p_to: filters.to,
     p_timezone: filters.timezone,
     p_department_id: filters.departmentId,
     p_agent_id: filters.agentId,
     p_whatsapp_config_id: filters.whatsappConfigId,
-  });
+  };
 
-  if (error) throw error;
-  return normalizeTicketAnalytics(data);
+  const [ticketResult, aiResult] = await Promise.all([
+    db.rpc('get_ticket_analytics', parameters),
+    db.rpc('get_ai_first_response_analytics', parameters),
+  ]);
+
+  if (ticketResult.error) throw ticketResult.error;
+  if (aiResult.error) throw aiResult.error;
+  return normalizeTicketAnalytics(ticketResult.data, aiResult.data);
 }
 
 export function buildTicketAnalyticsRange(
@@ -103,10 +111,14 @@ export function buildTicketAnalyticsRange(
   };
 }
 
-export function normalizeTicketAnalytics(value: unknown): TicketAnalytics {
+export function normalizeTicketAnalytics(
+  value: unknown,
+  aiValue: unknown = null
+): TicketAnalytics {
   const root = asRecord(value);
   const range = asRecord(root.range);
   const summary = asRecord(root.summary);
+  const aiSummary = asRecord(aiValue);
 
   return {
     range: {
@@ -121,6 +133,10 @@ export function normalizeTicketAnalytics(value: unknown): TicketAnalytics {
       avgFirstResponseMinutes: asNullableNumber(
         summary.avg_first_response_minutes
       ),
+      avgAiFirstResponseMinutes: asNullableNumber(
+        aiSummary.avg_first_response_minutes
+      ),
+      aiAnsweredTickets: asNumber(aiSummary.answered_tickets),
       avgResolutionMinutes: asNullableNumber(summary.avg_resolution_minutes),
       transfers: asNumber(summary.transfers),
       customersWaiting: asNumber(summary.customers_waiting),
