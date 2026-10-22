@@ -87,6 +87,20 @@ describe('AI catalog request detection', () => {
     expect(isCatalogRequest('Todavía no me envíes el catálogo')).toBe(false);
   });
 
+  it('does not confuse general financing or support questions with catalog requests', () => {
+    expect(
+      isCatalogRequest('¿Cuáles son los requisitos para el financiamiento?')
+    ).toBe(false);
+    expect(
+      isCatalogRequest('¿Qué documentos necesito para pedir financiamiento?')
+    ).toBe(false);
+    expect(isCatalogRequest('Envíame la dirección, por favor')).toBe(false);
+    expect(isCatalogRequest('¿Cuál es el precio?')).toBe(false);
+
+    expect(isCatalogRequest('¿Cuál es el precio del Mercedes?')).toBe(true);
+    expect(isCatalogRequest('Envíame opciones de vehículos')).toBe(true);
+  });
+
   it('treats interest as a selection only after catalog cards were shown', () => {
     expect(isCatalogRequest('Me interesa el BAIC X55')).toBe(false);
     expect(
@@ -103,6 +117,9 @@ describe('AI catalog request detection', () => {
     expect(isCatalogSelection('2')).toBe(true);
     expect(isCatalogSelection('el segundo')).toBe(true);
     expect(isCatalogRequest('2', { allowSelection: true })).toBe(true);
+    expect(
+      isCatalogRequest('Mándame fotos del segundo', { allowSelection: true })
+    ).toBe(true);
   });
 
   it('understands common Chilean maximum-price formats', () => {

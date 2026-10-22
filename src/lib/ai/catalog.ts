@@ -264,10 +264,18 @@ export function isCatalogRequest(
     /\b(envia|enviame|enviar|manda|mandame|comparti|comparteme|muestra|muestrame|mostrar|ensena|ensename|fotos|foto|fotografias|fotografia|imagenes|imagen|opciones|stock)\b/.test(
       normalized
     );
-  const requestsVehicleDetails =
+  const mentionsVehicleDetails =
     /\b(precio|valor|cuesta|pie|financiamiento|cuota|kilometraje|motor|ficha|informacion|datos|caracteristicas|equipamiento|version)\b/.test(
       normalized
     );
+  // These words are also common in ordinary support questions. Only treat
+  // them as catalog intent when the customer actually mentions the catalog or
+  // a vehicle; otherwise a financing question could attach arbitrary units.
+  const requestsCatalogItems =
+    explicitlyRequestsItems &&
+    (explicitlyRequestsCatalog || mentionsVehicle || mentionsBrand);
+  const requestsVehicleDetails =
+    mentionsVehicleDetails && (mentionsVehicle || mentionsBrand);
   const requestsAvailability =
     /\b(tienen|tienes|hay|disponible|disponibles)\b/.test(normalized) &&
     (mentionsVehicle || mentionsBrand);
@@ -276,11 +284,12 @@ export function isCatalogRequest(
 
   return (
     explicitlyRequestsCatalog ||
-    explicitlyRequestsItems ||
+    requestsCatalogItems ||
     requestsVehicleDetails ||
     requestsAvailability ||
     explicitlyWantsToSeeVehicles ||
-    (options.allowSelection === true && isCatalogSelection(message))
+    (options.allowSelection === true &&
+      (isCatalogSelection(message) || isCatalogMediaRequest(message)))
   );
 }
 

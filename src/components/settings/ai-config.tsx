@@ -896,19 +896,44 @@ export function AiConfig() {
                               disabled={disabled}
                             >
                               <option value="summary_first">
-                                Resumen primero (recomendado)
+                                Lista en texto; fotos solo al pedirlas
                               </option>
                               <option value="photos_immediately">
                                 Enviar fotos inmediatamente
                               </option>
                             </select>
                             <FieldHelp>
-                              En resumen primero, la IA muestra una lista
-                              numerada y envía la galería solo cuando el cliente
-                              elige un vehículo o pide sus fotos.
+                              En lista de texto, la IA muestra marca, modelo,
+                              año, kilometraje y precio. La galería se envía
+                              solo cuando el cliente elige un vehículo o pide
+                              sus fotos.
                             </FieldHelp>
                           </FormField>
                         )}
+                        {config.catalog_ai_auto_send &&
+                          config.catalog_delivery_mode === 'summary_first' && (
+                            <FormField label="Vehículos por lista">
+                              <select
+                                className="border-input bg-background h-10 w-full rounded-md border px-3 text-sm"
+                                value={config.catalog_ai_max_items}
+                                onChange={(event) =>
+                                  update(
+                                    'catalog_ai_max_items',
+                                    Number(event.target.value)
+                                  )
+                                }
+                                disabled={disabled}
+                              >
+                                <option value={3}>3 vehículos</option>
+                                <option value={4}>4 vehículos</option>
+                                <option value={5}>5 vehículos</option>
+                              </select>
+                              <FieldHelp>
+                                Define cuántas alternativas aparecen en el
+                                mensaje de catálogo sin fotos.
+                              </FieldHelp>
+                            </FormField>
+                          )}
                       </div>
                       <FormField label="Respuestas por chat">
                         <div className="border-border mb-3 flex items-center justify-between rounded-xl border px-4 py-3">
