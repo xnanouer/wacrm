@@ -299,6 +299,7 @@ function SummaryCards({
         humanMinutes={summary.avgFirstResponseMinutes}
         aiMinutes={summary.avgAiFirstResponseMinutes}
         aiAnsweredTickets={summary.aiAnsweredTickets}
+        aiExcludedOutliers={summary.aiExcludedOutliers}
       />
       <MetricCard
         title="Tiempo de resolución"
@@ -332,10 +333,12 @@ function FirstResponseComparisonCard({
   humanMinutes,
   aiMinutes,
   aiAnsweredTickets,
+  aiExcludedOutliers,
 }: {
   humanMinutes: number | null;
   aiMinutes: number | null;
   aiAnsweredTickets: number;
+  aiExcludedOutliers: number;
 }) {
   return (
     <div className="surface-elevated group hover:border-primary/20 relative min-h-44 overflow-hidden rounded-3xl p-6 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5">
@@ -367,9 +370,11 @@ function FirstResponseComparisonCard({
         </div>
       </div>
       <p className="text-muted-foreground relative mt-3 text-xs">
-        Mismo período y filtros · IA respondió primero en{' '}
-        {aiAnsweredTickets.toLocaleString()}{' '}
+        IA primero en {aiAnsweredTickets.toLocaleString()}{' '}
         {aiAnsweredTickets === 1 ? 'ticket' : 'tickets'}
+        {aiExcludedOutliers > 0
+          ? ` · ${aiExcludedOutliers.toLocaleString()} atípicos fuera del promedio`
+          : ' · Sin datos atípicos'}
       </p>
     </div>
   );

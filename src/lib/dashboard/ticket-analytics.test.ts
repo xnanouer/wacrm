@@ -53,6 +53,7 @@ describe('normalizeTicketAnalytics', () => {
       {
         avg_first_response_minutes: '0.4',
         answered_tickets: '11',
+        excluded_outliers: '2',
       }
     );
 
@@ -63,6 +64,7 @@ describe('normalizeTicketAnalytics', () => {
       avgFirstResponseMinutes: 4.5,
       avgAiFirstResponseMinutes: 0.4,
       aiAnsweredTickets: 11,
+      aiExcludedOutliers: 2,
       avgResolutionMinutes: null,
       transfers: 2,
       customersWaiting: 1,
@@ -80,6 +82,7 @@ describe('normalizeTicketAnalytics', () => {
     expect(result.summary.avgFirstResponseMinutes).toBeNull();
     expect(result.summary.avgAiFirstResponseMinutes).toBeNull();
     expect(result.summary.aiAnsweredTickets).toBe(0);
+    expect(result.summary.aiExcludedOutliers).toBe(0);
     expect(result.daily).toEqual([]);
     expect(result.departments).toEqual([]);
     expect(result.agents).toEqual([]);
