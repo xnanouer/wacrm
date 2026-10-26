@@ -31,6 +31,7 @@ import { formatCatalogClp } from '@/lib/catalog/config';
 interface CatalogImportDialogProps {
   open: boolean;
   remaining: number;
+  canPublishText: boolean;
   onOpenChange: (open: boolean) => void;
   onImported: () => Promise<void>;
 }
@@ -40,6 +41,7 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 export function CatalogImportDialog({
   open,
   remaining,
+  canPublishText,
   onOpenChange,
   onImported,
 }: CatalogImportDialogProps) {
@@ -219,10 +221,10 @@ export function CatalogImportDialog({
           </section>
         </div>
 
-        <div className="rounded-xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-xs leading-5 text-amber-800 dark:text-amber-200">
-          Las unidades se guardarán como borradores y sin fotografías. Después
-          usa “Cargar fotos”, elige uno de esos borradores y selecciona su
-          carpeta. Los nombres de las fotografías pueden ser cualquiera.
+        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3 text-xs leading-5 text-emerald-800 dark:text-emerald-200">
+          {canPublishText
+            ? 'Las unidades quedarán disponibles inmediatamente como catálogo de texto, aunque todavía no tengan fotografías. Podrás agregar las fotos después.'
+            : 'Las unidades quedarán como catálogo de texto y se enviarán directamente a aprobación. No es obligatorio cargar fotografías para solicitarla.'}
         </div>
 
         {issues.length > 0 ? (

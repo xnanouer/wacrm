@@ -736,6 +736,11 @@ export function buildCatalogSummary(
 ): string {
   if (candidates.length === 0) return '';
 
+  const everyVehicleHasPhotos = candidates.every(
+    (candidate) =>
+      candidate.imagePaths.length > 0 || Boolean(candidate.primaryImagePath)
+  );
+
   const rows = candidates.slice(0, 5).map((candidate, index) => {
     const name = `${candidate.make} ${candidate.model} ${candidate.version}`
       .replace(/\s+/g, ' ')
@@ -754,7 +759,9 @@ export function buildCatalogSummary(
       '',
       ...rows,
       '',
-      'Reply with the number or model and I will send you its photos.',
+      everyVehicleHasPhotos
+        ? 'Reply with the number or model and I will send you its photos.'
+        : 'Reply with the number or model and I will give you more information.',
     ].join('\n');
   }
   if (language === 'pt-BR') {
@@ -763,7 +770,9 @@ export function buildCatalogSummary(
       '',
       ...rows,
       '',
-      'Responda com o número ou modelo e eu enviarei as fotos.',
+      everyVehicleHasPhotos
+        ? 'Responda com o número ou modelo e eu enviarei as fotos.'
+        : 'Responda com o número ou modelo e eu darei mais informações.',
     ].join('\n');
   }
   return [
@@ -771,7 +780,9 @@ export function buildCatalogSummary(
     '',
     ...rows,
     '',
-    'Respóndeme con el número o modelo y te envío sus fotos.',
+    everyVehicleHasPhotos
+      ? 'Respóndeme con el número o modelo y te envío sus fotos.'
+      : 'Respóndeme con el número o modelo y te comparto más información.',
   ].join('\n');
 }
 
@@ -920,23 +931,17 @@ export async function sendCatalogCandidates(args: {
         : candidate.primaryImagePath
           ? [candidate.primaryImagePath]
           : [];
-      if (imagePaths.length === 0) {
-        throw new Error('catalog_primary_image_missing');
-      }
-
       let firstResult: {
         messageId: string;
         externalMessageId: string;
       } | null = null;
-      for (const [imageIndex, imagePath] of imagePaths.entries()) {
-        const mediaUrl = buildPrivateMediaUrl('catalog-media', imagePath);
-        const result =
+      if (imagePaths.length === 0) {
+        firstResult =
           channel === 'whatsapp'
             ? await sendMessageToConversation(db, accountId, {
                 conversationId,
-                messageType: 'image',
-                mediaUrl,
-                contentText: imageIndex === 0 ? caption : null,
+                messageType: 'text',
+                contentText: caption,
                 senderType,
                 senderId: senderType === 'agent' ? actorUserId : null,
                 pauseFlows: false,
@@ -946,17 +951,45 @@ export async function sendCatalogCandidates(args: {
               }))
             : await sendSocialMessageToConversation(db, accountId, {
                 conversationId,
-                messageType: 'image',
-                mediaUrl,
-                contentText: imageIndex === 0 ? caption : null,
+                messageType: 'text',
+                contentText: caption,
                 senderType,
                 senderId: senderType === 'agent' ? actorUserId : null,
               }).then((sent) => ({
                 messageId: sent.messageId,
                 externalMessageId: sent.metaMessageId,
               }));
-        firstResult ??= result;
-        imagesSent += 1;
+      } else {
+        for (const [imageIndex, imagePath] of imagePaths.entries()) {
+          const mediaUrl = buildPrivateMediaUrl('catalog-media', imagePath);
+          const result =
+            channel === 'whatsapp'
+              ? await sendMessageToConversation(db, accountId, {
+                  conversationId,
+                  messageType: 'image',
+                  mediaUrl,
+                  contentText: imageIndex === 0 ? caption : null,
+                  senderType,
+                  senderId: senderType === 'agent' ? actorUserId : null,
+                  pauseFlows: false,
+                }).then((sent) => ({
+                  messageId: sent.messageId,
+                  externalMessageId: sent.whatsappMessageId,
+                }))
+              : await sendSocialMessageToConversation(db, accountId, {
+                  conversationId,
+                  messageType: 'image',
+                  mediaUrl,
+                  contentText: imageIndex === 0 ? caption : null,
+                  senderType,
+                  senderId: senderType === 'agent' ? actorUserId : null,
+                }).then((sent) => ({
+                  messageId: sent.messageId,
+                  externalMessageId: sent.metaMessageId,
+                }));
+          firstResult ??= result;
+          imagesSent += 1;
+        }
       }
 
       if (!firstResult) throw new Error('catalog_images_not_sent');

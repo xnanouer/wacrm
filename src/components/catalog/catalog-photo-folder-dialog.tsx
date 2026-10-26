@@ -72,8 +72,11 @@ export function CatalogPhotoFolderDialog({
       vehicles
         .filter(
           (vehicle) =>
-            vehicle.status === 'draft' &&
-            (canAdminister || vehicle.createdByCurrentUser)
+            (canAdminister &&
+              ['draft', 'pending_approval', 'available'].includes(
+                vehicle.status
+              )) ||
+            (vehicle.status === 'draft' && vehicle.createdByCurrentUser)
         )
         .sort((left, right) =>
           left.internalCode.localeCompare(right.internalCode, 'es', {
@@ -227,16 +230,17 @@ export function CatalogPhotoFolderDialog({
             Cargar carpeta de fotos
           </DialogTitle>
           <DialogDescription>
-            Elige un vehículo en borrador y Nexora asignará todas las fotos de
-            la carpeta a ese vehículo. Los nombres de los archivos no importan.
+            Elige un vehículo y Nexora asignará todas las fotos de la carpeta a
+            ese vehículo. Los nombres de los archivos no importan.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 py-2 md:grid-cols-2">
           <section className="border-border bg-muted/25 rounded-2xl border p-4">
-            <p className="text-sm font-semibold">1. Elige el borrador</p>
+            <p className="text-sm font-semibold">1. Elige el vehículo</p>
             <p className="text-muted-foreground mt-1 text-xs leading-5">
-              Solo aparecen los vehículos en borrador que puedes modificar.
+              Puedes agregar fotos a los listados de texto después de
+              importarlos.
             </p>
             <Select
               value={selectedVehicleId || null}
@@ -285,8 +289,8 @@ export function CatalogPhotoFolderDialog({
 
         {eligibleVehicles.length === 0 && (
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/8 px-4 py-3 text-xs leading-5 text-amber-800 dark:text-amber-200">
-            No hay vehículos en borrador que puedas modificar. Importa el
-            catálogo o crea un borrador antes de cargar una carpeta.
+            No hay vehículos que puedas modificar. Importa el catálogo o crea un
+            borrador antes de cargar una carpeta.
           </div>
         )}
 

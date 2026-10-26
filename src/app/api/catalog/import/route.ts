@@ -169,10 +169,13 @@ export async function POST(request: Request) {
     const importedIds: string[] = [];
     const failedRows: CatalogImportIssue[] = [];
     for (const row of parsedRows) {
-      const { data, error } = await ctx.supabase.rpc('create_catalog_vehicle', {
-        p_payload: toCatalogVehiclePayload(row.input),
-        p_confirm_possible_duplicate: false,
-      });
+      const { data, error } = await ctx.supabase.rpc(
+        'import_catalog_text_vehicle',
+        {
+          p_payload: toCatalogVehiclePayload(row.input),
+          p_confirm_possible_duplicate: false,
+        }
+      );
       if (error) {
         console.error('[catalog import] row failed:', {
           rowNumber: row.rowNumber,
@@ -195,7 +198,9 @@ export async function POST(request: Request) {
         issues: failedRows,
         message:
           failedRows.length === 0
-            ? `${importedIds.length} vehículos importados como borradores.`
+            ? ctx.role === 'owner' || ctx.role === 'admin'
+              ? `${importedIds.length} vehículos incorporados al catálogo de texto y disponibles para compartir.`
+              : `${importedIds.length} vehículos incorporados como catálogo de texto y enviados a aprobación.`
             : `${importedIds.length} vehículos importados y ${failedRows.length} filas con problemas.`,
       },
       { status: failedRows.length > 0 ? 207 : 201 }

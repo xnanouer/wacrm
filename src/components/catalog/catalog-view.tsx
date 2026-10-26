@@ -773,6 +773,7 @@ export function CatalogView({
       <CatalogImportDialog
         open={importOpen}
         remaining={remaining}
+        canPublishText={canAdminister}
         onOpenChange={setImportOpen}
         onImported={refreshCatalog}
       />

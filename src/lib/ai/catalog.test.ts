@@ -256,4 +256,16 @@ describe('AI catalog ranking and privacy', () => {
       hasCatalogCardsInConversation([{ role: 'assistant', content: summary }])
     ).toBe(true);
   });
+
+  it('offers more information instead of promising missing photos', () => {
+    const summary = buildCatalogSummary([
+      candidate({
+        primaryImagePath: null,
+        imagePaths: [],
+      }),
+    ]);
+
+    expect(summary).toContain('te comparto más información');
+    expect(summary).not.toContain('te envío sus fotos');
+  });
 });
