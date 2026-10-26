@@ -877,18 +877,20 @@ async function processMessage(
     }).catch((err) => console.error('[automations] dispatch failed:', err));
   }
 
-  // AI auto-reply. Runs only for plain-text inbound the deterministic
-  // flow runner did NOT consume (flows win over the LLM), and only when
-  // the account has enabled it. Awaited inside `after()` (same reason as
-  // the webhook dispatch below); `dispatchInboundToAiReply` owns its
-  // eligibility gates + try/catch and never throws.
-  if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
+  // Qualification capture also receives images/PDFs without captions. A
+  // consumed flow or captionless attachment is capture-only, so it can never
+  // trigger an unrelated AI reply while still completing verified lead data.
+  const hasLeadAttachment =
+    (contentType === 'image' || contentType === 'document') &&
+    Boolean(mediaUrl);
+  if (!interactiveReplyId && (inboundText.trim() || hasLeadAttachment)) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
       contactId: contactRecord.id,
       configOwnerUserId,
       sourceMessageExternalId: message.id,
+      captureOnly: flowConsumed || !inboundText.trim(),
     });
   }
 

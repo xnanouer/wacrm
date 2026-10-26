@@ -23,7 +23,14 @@ import {
   uploadAiVoiceNote,
 } from './audio';
 import { AiError, type AiConfig, type LeadProfilePatch } from './types';
-import { saveConversationLeadProfile } from './lead-profile';
+import {
+  extractDeterministicLeadProfilePatch,
+  formatChileanRut,
+  loadConversationLeadProfile,
+  normalizeDocumentFullName,
+  saveConversationLeadProfile,
+} from './lead-profile';
+import { analyzeInboundLeadDocument } from './inbound-document';
 import { isAutomaticAiActiveAt } from './schedule';
 
 interface DispatchArgs {
@@ -36,10 +43,20 @@ interface DispatchArgs {
   configOwnerUserId: string;
   /** Stable provider-side identifier of the inbound message. */
   sourceMessageExternalId: string;
+  /** Persist qualification facts but never generate a customer reply. */
+  captureOnly?: boolean;
 }
 
 interface ConversationTransport {
   channel_connection_id: string | null;
+}
+
+interface InboundSourceMessage {
+  id: string;
+  sender_type: string;
+  content_type: string;
+  content_text: string | null;
+  media_url: string | null;
 }
 
 async function sendAutomaticMessage(
@@ -92,6 +109,118 @@ function catalogDeliveryIntroduction(language: AiConfig['language']): string {
     return 'Claro. Estou enviando agora as fotos e os detalhes dos veículos disponíveis.';
   }
   return 'Claro. Te envío ahora las fotos y los detalles de los vehículos disponibles.';
+}
+
+async function captureInboundLeadFacts(args: {
+  db: ReturnType<typeof supabaseAdmin>;
+  config: AiConfig;
+  accountId: string;
+  conversationId: string;
+  contactId: string;
+  actorUserId: string;
+  sourceMessageExternalId: string;
+  sourceMessage: InboundSourceMessage;
+}): Promise<void> {
+  if (
+    !args.config.permissions.classify_leads ||
+    args.sourceMessage.sender_type !== 'customer'
+  ) {
+    return;
+  }
+
+  const patch = extractDeterministicLeadProfilePatch(
+    args.sourceMessage.content_text ?? ''
+  );
+  const hasSupportedAttachment =
+    Boolean(args.sourceMessage.media_url) &&
+    (args.sourceMessage.content_type === 'image' ||
+      args.sourceMessage.content_type === 'document');
+
+  if (hasSupportedAttachment && args.config.provider === 'openai') {
+    let reservation: Awaited<ReturnType<typeof reserveAiPoints>> | null = null;
+    try {
+      const current = await loadConversationLeadProfile({
+        db: args.db,
+        accountId: args.accountId,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+      });
+      const identityAlreadyComplete = Boolean(
+        formatChileanRut(current.rut ?? '') &&
+        normalizeDocumentFullName(current.full_name)
+      );
+      if (identityAlreadyComplete) {
+        if (Object.keys(patch).length > 0) {
+          await saveConversationLeadProfile({
+            db: args.db,
+            accountId: args.accountId,
+            conversationId: args.conversationId,
+            contactId: args.contactId,
+            sourceMessageId: args.sourceMessage.id,
+            patch,
+          });
+        }
+        return;
+      }
+
+      reservation = await reserveAiPoints({
+        accountId: args.accountId,
+        action: 'lead_analysis',
+        idempotencyKey: `lead-document:${args.sourceMessageExternalId}`,
+        actorUserId: args.actorUserId,
+        aiConfigId: args.config.id,
+        conversationId: args.conversationId,
+        contactId: args.contactId,
+        sourceMessageId: args.sourceMessage.id,
+        metadata: { surface: 'inbound_document_prequalification' },
+      });
+      const analysis = await analyzeInboundLeadDocument({
+        db: args.db,
+        accountId: args.accountId,
+        config: args.config,
+        mediaUrl: args.sourceMessage.media_url!,
+      });
+      await finalizeAiPoints(reservation.operationId, {
+        providerRequestId: analysis.providerRequestId,
+        metadata: {
+          outcome:
+            Object.keys(analysis.patch).length > 0
+              ? 'identity_data_detected'
+              : 'no_identity_data_detected',
+        },
+      });
+      reservation = null;
+      if (!formatChileanRut(current.rut ?? '') && analysis.patch.rut) {
+        patch.rut = analysis.patch.rut;
+      }
+      if (
+        !normalizeDocumentFullName(current.full_name) &&
+        analysis.patch.full_name
+      ) {
+        patch.full_name = analysis.patch.full_name;
+      }
+    } catch (error) {
+      if (reservation) {
+        await releaseAiPointsQuietly(
+          reservation.operationId,
+          'lead_document_analysis_failed'
+        );
+      }
+      // Identity extraction is auxiliary. A malformed or unsupported file
+      // must never block inbox ingestion or an otherwise valid AI reply.
+      console.error('[ai auto-reply] lead document analysis failed:', error);
+    }
+  }
+
+  if (Object.keys(patch).length === 0) return;
+  await saveConversationLeadProfile({
+    db: args.db,
+    accountId: args.accountId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    sourceMessageId: args.sourceMessage.id,
+    patch,
+  });
 }
 
 async function prepareAudioReply(args: {
@@ -199,17 +328,51 @@ export async function dispatchInboundToAiReply(
     contactId,
     configOwnerUserId,
     sourceMessageExternalId,
+    captureOnly = false,
   } = args;
 
   try {
     const db = supabaseAdmin();
 
     const config = await loadAiConfig(db, accountId);
-    if (
-      !config ||
-      !config.autoReplyEnabled ||
-      config.operatingMode !== 'automatic'
-    ) {
+    if (!config) return;
+
+    const { data: sourceMessage } = await db
+      .from('messages')
+      .select('id, sender_type, content_type, content_text, media_url')
+      .eq('conversation_id', conversationId)
+      .eq('message_id', sourceMessageExternalId)
+      .maybeSingle();
+
+    if (sourceMessage) {
+      try {
+        await captureInboundLeadFacts({
+          db,
+          config,
+          accountId,
+          conversationId,
+          contactId,
+          actorUserId: configOwnerUserId,
+          sourceMessageExternalId,
+          sourceMessage: sourceMessage as InboundSourceMessage,
+        });
+      } catch (error) {
+        console.error(
+          '[ai auto-reply] deterministic lead capture failed:',
+          error
+        );
+      }
+    }
+
+    const attachmentWithoutCaption = Boolean(
+      sourceMessage &&
+      (sourceMessage.content_type === 'image' ||
+        sourceMessage.content_type === 'document') &&
+      !sourceMessage.content_text?.trim()
+    );
+    if (captureOnly || attachmentWithoutCaption) return;
+
+    if (!config.autoReplyEnabled || config.operatingMode !== 'automatic') {
       return;
     }
     if (
@@ -313,13 +476,6 @@ export async function dispatchInboundToAiReply(
 
     const messages = await buildConversationContext(db, conversationId);
     if (messages.length === 0) return;
-
-    const { data: sourceMessage } = await db
-      .from('messages')
-      .select('id')
-      .eq('conversation_id', conversationId)
-      .eq('message_id', sourceMessageExternalId)
-      .maybeSingle();
 
     let reservation;
     try {

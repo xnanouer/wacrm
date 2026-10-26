@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLeadProfileExtractionPrompt,
   buildLeadQualificationContext,
+  extractDeterministicLeadProfilePatch,
   extractLeadProfilePatch,
+  formatChileanRut,
+  normalizeDocumentFullName,
   parseLeadProfileJson,
   sanitizeLeadProfilePatch,
   shouldExtractLeadProfile,
@@ -61,6 +64,50 @@ describe('AI lead profile', () => {
     ).toEqual({ full_name: 'Ana Pérez', has_dicom: false });
   });
 
+  it('accepts only Chilean RUTs with a valid verifier digit', () => {
+    expect(formatChileanRut('17955246-9')).toBe('17.955.246-9');
+    expect(sanitizeLeadProfilePatch({ rut: '17.955.246-9' })).toEqual({
+      rut: '17.955.246-9',
+    });
+    expect(sanitizeLeadProfilePatch({ rut: 'Si demole' })).toEqual({});
+    expect(sanitizeLeadProfilePatch({ rut: '17.955.246-8' })).toEqual({});
+  });
+
+  it('captures a valid RUT and an explicitly stated full name deterministically', () => {
+    expect(
+      extractDeterministicLeadProfilePatch(
+        'Mi nombre completo es Carlos Alberto Soto y mi RUT es 17.955.246-9'
+      )
+    ).toEqual({
+      rut: '17.955.246-9',
+      full_name: 'Carlos Alberto Soto',
+    });
+    expect(
+      extractDeterministicLeadProfilePatch('Mi teléfono es 56936200994')
+    ).toEqual({});
+  });
+
+  it('accepts a compact RUT only when the customer identifies it as a RUT', () => {
+    expect(extractDeterministicLeadProfilePatch('Mi RUT es 179552469')).toEqual(
+      { rut: '17.955.246-9' }
+    );
+    expect(extractDeterministicLeadProfilePatch('RUT: 179552469')).toEqual({
+      rut: '17.955.246-9',
+    });
+    expect(extractDeterministicLeadProfilePatch('179552469')).toEqual({});
+    expect(extractDeterministicLeadProfilePatch('Mi RUT es 179552468')).toEqual(
+      {}
+    );
+  });
+
+  it('requires at least a name and surname for document-derived names', () => {
+    expect(normalizeDocumentFullName('EEPB')).toBeNull();
+    expect(normalizeDocumentFullName('CARLOS ALBERTO SOTO PÉREZ')).toBe(
+      'CARLOS ALBERTO SOTO PÉREZ'
+    );
+    expect(normalizeDocumentFullName('Certificado 2026')).toBeNull();
+  });
+
   it('extracts and removes the private machine block', () => {
     const raw =
       'Gracias, Ana.\n[[LEAD_PROFILE]]{"city":"Temuco","trade_in":false}[[/LEAD_PROFILE]]';
@@ -114,5 +161,14 @@ describe('AI lead profile', () => {
     expect(context).toContain('no vuelvas a preguntarlos');
     expect(context).toContain('no los repitas completos');
     expect(context).toContain('agrega obligatoriamente un bloque interno');
+  });
+
+  it('does not present a malformed stored RUT as confirmed', () => {
+    const context = buildLeadQualificationContext(
+      profile({ rut: 'Si demole' }),
+      ['RUT para financiamiento']
+    );
+    expect(context).toContain('RUT: sin confirmar');
+    expect(context).not.toContain('RUT: Si demole');
   });
 });

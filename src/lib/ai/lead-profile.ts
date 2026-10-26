@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  isValidChileanRut,
+  normalizeRut as normalizeChileanRut,
+} from '@/lib/quotes/validation';
+
+import {
   LEAD_PROFILE_END_SENTINEL,
   LEAD_PROFILE_START_SENTINEL,
 } from './defaults';
@@ -63,6 +68,11 @@ export function sanitizeLeadProfilePatch(value: unknown): LeadProfilePatch {
     if (typeof candidate !== 'string') continue;
     const normalized = candidate.replace(/\s+/g, ' ').trim();
     if (!normalized) continue;
+    if (key === 'rut') {
+      const rut = formatChileanRut(normalized);
+      if (rut) patch.rut = rut;
+      continue;
+    }
     (patch as Record<string, unknown>)[key] = normalized.slice(
       0,
       TEXT_LIMITS[key]
@@ -70,6 +80,67 @@ export function sanitizeLeadProfilePatch(value: unknown): LeadProfilePatch {
   }
 
   return patch;
+}
+
+export function formatChileanRut(value: string): string | null {
+  const normalized = normalizeChileanRut(value);
+  if (!normalized || !isValidChileanRut(normalized)) return null;
+  const body = normalized.slice(0, -1);
+  const verifier = normalized.slice(-1);
+  const formattedBody = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${formattedBody}-${verifier}`;
+}
+
+/**
+ * Capture facts whose syntax is authoritative without asking a model. This
+ * runs for every inbound customer message, including turns that arrive after
+ * the AI handed the conversation to a person.
+ */
+export function extractDeterministicLeadProfilePatch(
+  text: string
+): LeadProfilePatch {
+  const patch: LeadProfilePatch = {};
+  const rutCandidates = text.match(
+    /\b(?:\d{1,2}(?:[.\s]\d{3}){2}|\d{7,8})\s*-\s*[0-9kK]\b/g
+  );
+  for (const candidate of rutCandidates ?? []) {
+    const rut = formatChileanRut(candidate);
+    if (rut) {
+      patch.rut = rut;
+      break;
+    }
+  }
+
+  // A compact RUT can look exactly like a phone number. Accept it only when
+  // the customer labels the value as a RUT; never infer it from a bare number.
+  if (!patch.rut) {
+    const labeledCompactRut = text.match(
+      /\b(?:mi\s+rut(?:\s+(?:es|ser[iía]))?|rut\s*(?::|es)?)\s*(\d{7,8}[0-9kK])\b/i
+    )?.[1];
+    const rut = labeledCompactRut ? formatChileanRut(labeledCompactRut) : null;
+    if (rut) patch.rut = rut;
+  }
+
+  const explicitName = text.match(
+    /(?:\bmi\s+nombre(?:\s+completo)?\s+es\b|\bme\s+llamo\b|\bnombre\s+completo\s*:)\s*([a-záéíóúüñ][a-záéíóúüñ'\-]*(?:\s+[a-záéíóúüñ][a-záéíóúüñ'\-]*){1,5}?)(?=\s+(?:y\s+mi\b|rut\b|tel[eé]fono\b|correo\b)|[,.]|$)/i
+  )?.[1];
+  const fullName = normalizeDocumentFullName(explicitName);
+  if (fullName) patch.full_name = fullName;
+
+  return patch;
+}
+
+/** A document must contain at least a given name and one surname. */
+export function normalizeDocumentFullName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.replace(/\s+/g, ' ').trim().slice(0, 160);
+  if (!normalized || /\d/.test(normalized)) return null;
+  const parts = normalized.split(' ');
+  if (parts.length < 2 || parts.length > 8) return null;
+  if (parts.some((part) => !/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ'\-]{1,40}$/.test(part))) {
+    return null;
+  }
+  return normalized;
 }
 
 export function extractLeadProfilePatch(raw: string): LeadProfilePatch {
@@ -171,6 +242,8 @@ export function buildLeadProfileExtractionPrompt(
     `La empresa desea recopilar: ${configuredFields.join(', ')}.`,
     `Datos ya guardados: ${JSON.stringify(existing)}.`,
     'Incluye solo datos nuevos o correcciones que el cliente haya confirmado explícitamente. Usa la pregunta inmediatamente anterior para interpretar respuestas breves como "sí", "Santiago" o "indefinido".',
+    'full_name debe provenir de una declaración explícita del cliente; nunca uses como confirmación el nombre visible de WhatsApp, Instagram, Facebook o del contacto.',
+    'rut debe ser un RUT chileno completo con dígito verificador válido. Omítelo si parece una frase, un teléfono, está incompleto o no supera la validación del dígito verificador.',
     'No copies como hecho una afirmación hecha solamente por el asistente. No inventes ni deduzcas aprobación financiera. Si no hay datos nuevos confirmados, devuelve {}.',
     'Extrae también datos permitidos que el cliente entregue espontáneamente, aunque no estén en la lista deseada.',
     'Claves permitidas: full_name, rut, phone, email, address, commune, city, region, occupation, company, monthly_income, vehicle_interest, vehicle_plate, vehicle_price, down_payment, payment_method, income_proof, employment_type, employment_tenure, has_dicom, trade_in, trade_in_vehicle, purchase_timeline, financing_requested.',
@@ -221,7 +294,10 @@ export async function loadConversationLeadProfile(args: {
     account_id: accountId,
     conversation_id: conversationId,
     contact_id: contactId,
-    full_name: contact?.name?.trim() || null,
+    // A WhatsApp/Instagram display name is not an identity confirmation.
+    // Keep it available on the contact card, but do not present it as a
+    // customer-confirmed legal name in prequalification.
+    full_name: null,
     rut: null,
     phone: contact?.phone?.trim() || null,
     email: contact?.email?.trim() || null,
@@ -332,10 +408,6 @@ export function parseLeadProfileMoney(value: string | null): number | null {
   return Number.isFinite(amount) ? amount : null;
 }
 
-function normalizeRut(value: string): string {
-  return value.replace(/[^0-9kK]/g, '').toUpperCase();
-}
-
 async function syncMissingContactFields(args: {
   db: SupabaseClient;
   accountId: string;
@@ -389,14 +461,22 @@ async function syncMissingContactFields(args: {
   for (const [contactKey, profileKey] of Object.entries(textMappings)) {
     const current = contact[contactKey as keyof typeof contact];
     const candidate = args.profile[profileKey];
+    const currentIsMissing =
+      current === null || current === undefined || current === '';
+    const shouldRepairInvalidRut =
+      contactKey === 'rut' &&
+      typeof current === 'string' &&
+      !isValidChileanRut(current);
     if (
-      (current === null || current === undefined || current === '') &&
+      (currentIsMissing || shouldRepairInvalidRut) &&
       typeof candidate === 'string' &&
       candidate.trim()
     ) {
       update[contactKey] = candidate.trim();
       sources[contactKey] = source;
-      if (contactKey === 'rut') update.rut_normalized = normalizeRut(candidate);
+      if (contactKey === 'rut') {
+        update.rut_normalized = normalizeChileanRut(candidate);
+      }
     }
   }
 
@@ -443,12 +523,13 @@ export function buildLeadQualificationContext(
   profile: ConversationLeadProfile,
   configuredFields: string[]
 ): string {
+  const confirmedRut = profile.rut ? formatChileanRut(profile.rut) : null;
   return [
     'Herramienta interna de precalificación de Nexora.',
     `Datos solicitados por la empresa: ${configuredFields.join(', ')}.`,
     'Datos ya confirmados (no vuelvas a preguntarlos):',
     `- Nombre completo: ${profile.full_name || 'sin confirmar'}`,
-    `- RUT: ${profile.rut || 'sin confirmar'}`,
+    `- RUT: ${confirmedRut || 'sin confirmar'}`,
     `- Teléfono: ${profile.phone || 'sin confirmar'}`,
     `- Correo: ${profile.email || 'sin confirmar'}`,
     `- Domicilio: ${profile.address || 'sin confirmar'}`,

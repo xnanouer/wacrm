@@ -25,12 +25,23 @@ const h = vi.hoisted(() => ({
   loadConversationLeadProfile: vi.fn(),
   buildLeadQualificationContext: vi.fn(),
   saveConversationLeadProfile: vi.fn(),
+  extractDeterministicLeadProfilePatch: vi.fn(),
+  formatChileanRut: vi.fn(),
+  normalizeDocumentFullName: vi.fn(),
+  analyzeInboundLeadDocument: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as { id: string }[],
     claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
+    sourceMessage: {
+      id: 'message-uuid',
+      sender_type: 'customer',
+      content_type: 'text',
+      content_text: 'hi',
+      media_url: null,
+    } as Record<string, unknown> | null,
   },
 }));
 
@@ -70,6 +81,12 @@ vi.mock('./lead-profile', () => ({
   loadConversationLeadProfile: h.loadConversationLeadProfile,
   buildLeadQualificationContext: h.buildLeadQualificationContext,
   saveConversationLeadProfile: h.saveConversationLeadProfile,
+  extractDeterministicLeadProfilePatch: h.extractDeterministicLeadProfilePatch,
+  formatChileanRut: h.formatChileanRut,
+  normalizeDocumentFullName: h.normalizeDocumentFullName,
+}));
+vi.mock('./inbound-document', () => ({
+  analyzeInboundLeadDocument: h.analyzeInboundLeadDocument,
 }));
 vi.mock('./admin-client', () => ({
   supabaseAdmin: () => ({
@@ -90,7 +107,7 @@ vi.mock('./admin-client', () => ({
           select: () => chain,
           eq: () => chain,
           maybeSingle: () =>
-            Promise.resolve({ data: { id: 'message-uuid' }, error: null }),
+            Promise.resolve({ data: h.state.sourceMessage, error: null }),
         };
         return chain;
       }
@@ -197,6 +214,13 @@ beforeEach(() => {
   h.state.claim = true;
   h.state.updatePayload = null;
   h.state.rpcCalls = [];
+  h.state.sourceMessage = {
+    id: 'message-uuid',
+    sender_type: 'customer',
+    content_type: 'text',
+    content_text: 'hi',
+    media_url: null,
+  };
   h.loadAiConfig.mockResolvedValue(aiConfig());
   h.buildConversationContext.mockResolvedValue([
     { role: 'user', content: 'hi' },
@@ -236,6 +260,15 @@ beforeEach(() => {
   });
   h.buildLeadQualificationContext.mockReturnValue('lead qualification context');
   h.saveConversationLeadProfile.mockResolvedValue(undefined);
+  h.extractDeterministicLeadProfilePatch.mockReturnValue({});
+  h.formatChileanRut.mockImplementation((value: string) => value || null);
+  h.normalizeDocumentFullName.mockImplementation((value: string | null) =>
+    value && value.trim().split(/\s+/).length >= 2 ? value : null
+  );
+  h.analyzeInboundLeadDocument.mockResolvedValue({
+    patch: {},
+    providerRequestId: 'response-document-1',
+  });
   h.sendMessageToConversation.mockResolvedValue({
     messageId: 'message-out-1',
     whatsappMessageId: 'm1',
@@ -607,6 +640,101 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
         patch: { full_name: 'Ana Pérez' },
       })
     );
+  });
+
+  it('captures a valid fact even after the AI handed the chat to a person', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        permissions: {
+          ...AI_CONFIG_RUNTIME_DEFAULTS.permissions,
+          classify_leads: true,
+        },
+      })
+    );
+    h.state.sourceMessage = {
+      id: 'message-rut',
+      sender_type: 'customer',
+      content_type: 'text',
+      content_text: 'Mi RUT es 17.955.246-9',
+      media_url: null,
+    };
+    h.state.conv = {
+      assigned_agent_id: null,
+      ai_autoreply_disabled: true,
+      ai_reply_count: 1,
+      ai_state: 'waiting_for_human',
+      human_requested_at: '2026-10-26T12:00:00.000Z',
+      whatsapp_config_id: 'wa-config-1',
+      channel_connection_id: null,
+      channel: 'whatsapp',
+    };
+    h.extractDeterministicLeadProfilePatch.mockReturnValue({
+      rut: '17.955.246-9',
+    });
+
+    await dispatchInboundToAiReply(ARGS);
+
+    expect(h.saveConversationLeadProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceMessageId: 'message-rut',
+        patch: { rut: '17.955.246-9' },
+      })
+    );
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.sendMessageToConversation).not.toHaveBeenCalled();
+  });
+
+  it('analyzes an inbound identity document for prequalification', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        permissions: {
+          ...AI_CONFIG_RUNTIME_DEFAULTS.permissions,
+          classify_leads: true,
+        },
+      })
+    );
+    h.state.sourceMessage = {
+      id: 'message-document',
+      sender_type: 'customer',
+      content_type: 'image',
+      content_text: null,
+      media_url: '/api/storage/media?bucket=chat-media&path=document.jpg',
+    };
+    h.loadConversationLeadProfile.mockResolvedValue({
+      full_name: 'EEPB',
+      rut: null,
+      phone: '+56911112222',
+    });
+    h.analyzeInboundLeadDocument.mockResolvedValue({
+      patch: {
+        full_name: 'CARLOS ALBERTO SOTO PÉREZ',
+        rut: '17.955.246-9',
+      },
+      providerRequestId: 'response-document-9',
+    });
+
+    await dispatchInboundToAiReply(ARGS);
+
+    expect(h.reserveAiPoints).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'lead_analysis',
+        idempotencyKey: 'lead-document:wamid-test-1',
+      })
+    );
+    expect(h.finalizeAiPoints).toHaveBeenCalledWith(
+      'operation-1',
+      expect.objectContaining({ providerRequestId: 'response-document-9' })
+    );
+    expect(h.saveConversationLeadProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceMessageId: 'message-document',
+        patch: {
+          full_name: 'CARLOS ALBERTO SOTO PÉREZ',
+          rut: '17.955.246-9',
+        },
+      })
+    );
+    expect(h.generateReply).not.toHaveBeenCalled();
   });
 
   it('stands down when an active message-level automation exists', async () => {

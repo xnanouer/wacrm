@@ -398,13 +398,17 @@ async function ingest(event: InboundBody) {
     });
   }
 
-  if (!flow.consumed && effectiveText.trim()) {
+  const hasLeadAttachment =
+    (contentType === 'image' || contentType === 'document') &&
+    Boolean(event.mediaUrl);
+  if (effectiveText.trim() || hasLeadAttachment) {
     await dispatchInboundToAiReply({
       accountId: event.accountId,
       conversationId: conversation.id,
       contactId: contactOutcome.contact.id,
       configOwnerUserId: config.user_id,
       sourceMessageExternalId: event.messageId,
+      captureOnly: flow.consumed || !effectiveText.trim(),
     });
   }
 
