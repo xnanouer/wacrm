@@ -5,7 +5,16 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendSocialMessageToConversation } from '@/lib/meta/send-message';
 import { buildPrivateMediaUrl } from '@/lib/storage/private-media-reference';
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
+import {
+  parseCatalogDownPayment,
+  parseCatalogMaxPrice,
+} from './catalog-preferences';
 import type { ChatMessage } from './types';
+
+export {
+  parseCatalogDownPayment,
+  parseCatalogMaxPrice,
+} from './catalog-preferences';
 
 const FUEL_LABELS: Record<string, string> = {
   gasoline: 'Bencina',
@@ -276,6 +285,8 @@ export function isCatalogRequest(
     (explicitlyRequestsCatalog || mentionsVehicle || mentionsBrand);
   const requestsVehicleDetails =
     mentionsVehicleDetails && (mentionsVehicle || mentionsBrand);
+  const refinesShownCatalog =
+    options.allowSelection === true && mentionsVehicleDetails;
   const requestsAvailability =
     /\b(tienen|tienes|hay|disponible|disponibles)\b/.test(normalized) &&
     (mentionsVehicle || mentionsBrand);
@@ -286,34 +297,12 @@ export function isCatalogRequest(
     explicitlyRequestsCatalog ||
     requestsCatalogItems ||
     requestsVehicleDetails ||
+    refinesShownCatalog ||
     requestsAvailability ||
     explicitlyWantsToSeeVehicles ||
     (options.allowSelection === true &&
       (isCatalogSelection(message) || isCatalogMediaRequest(message)))
   );
-}
-
-export function parseCatalogMaxPrice(message: string): number | null {
-  const normalized = message
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase('es');
-  const match = normalized.match(
-    /\b(?:hasta|maximo|menos de|menor a|bajo|presupuesto(?: de)?)\s*\$?\s*([\d.,]+)\s*(millones?|palos?|m)?\b/
-  );
-  if (!match) return null;
-
-  const raw = match[1];
-  const suffix = match[2];
-  const digitsOnly = raw.replace(/[^\d]/g, '');
-  if (!digitsOnly) return null;
-
-  let amount = suffix
-    ? Number(raw.replace(/\./g, '').replace(',', '.'))
-    : Number(digitsOnly);
-  if (!Number.isFinite(amount)) return null;
-  if (suffix || amount < 1_000) amount *= 1_000_000;
-  return amount > 0 ? amount : null;
 }
 
 function requestedYear(message: string): number | null {
@@ -380,6 +369,29 @@ const GENERIC_TOKENS = new Set([
   'hasta',
   'maximo',
   'precio',
+  'presupuesto',
+  'pie',
+  'enganche',
+  'millon',
+  'millones',
+  'palo',
+  'palos',
+  'luca',
+  'lucas',
+  'tengo',
+  'cuento',
+  'dispongo',
+  'para',
+  'como',
+  'un',
+  'una',
+  'el',
+  'la',
+  'los',
+  'las',
+  'con',
+  'de',
+  'del',
 ]);
 
 export function rankCatalogCandidates(
@@ -388,6 +400,7 @@ export function rankCatalogCandidates(
   maxItems: number
 ): AiCatalogCandidate[] {
   const maxPrice = parseCatalogMaxPrice(message);
+  const availableDownPayment = parseCatalogDownPayment(message);
   const year = requestedYear(message);
   const fuel = requestedFuel(message);
   const transmission = requestedTransmission(message);
@@ -404,6 +417,7 @@ export function rankCatalogCandidates(
       ));
   const hasStructuredPreference =
     maxPrice !== null ||
+    availableDownPayment !== null ||
     year !== null ||
     fuel !== null ||
     transmission !== null;
@@ -415,6 +429,13 @@ export function rankCatalogCandidates(
     .filter((candidate) => {
       if (maxPrice !== null && candidate.displayedPrice > maxPrice)
         return false;
+      if (
+        availableDownPayment !== null &&
+        candidate.minimumDownPayment !== null &&
+        candidate.minimumDownPayment > availableDownPayment
+      ) {
+        return false;
+      }
       if (year !== null && candidate.year !== year) return false;
       if (
         fuel !== null &&
@@ -452,17 +473,33 @@ export function rankCatalogCandidates(
         (total, token) => total + (haystack.includes(token) ? 3 : 0),
         0
       );
-      return { candidate, score };
+      const hasConfirmedCompatibleDownPayment =
+        availableDownPayment !== null &&
+        candidate.minimumDownPayment !== null &&
+        candidate.minimumDownPayment <= availableDownPayment;
+      const priceDistance =
+        maxPrice === null
+          ? Number.POSITIVE_INFINITY
+          : Math.max(0, maxPrice - candidate.displayedPrice);
+      return {
+        candidate,
+        score,
+        hasConfirmedCompatibleDownPayment,
+        priceDistance,
+      };
     })
     .sort(
       (a, b) =>
         b.score - a.score ||
+        Number(b.hasConfirmedCompatibleDownPayment) -
+          Number(a.hasConfirmedCompatibleDownPayment) ||
+        a.priceDistance - b.priceDistance ||
         Date.parse(b.candidate.updatedAt) - Date.parse(a.candidate.updatedAt)
     );
 
   const hasTextMatch = scored.some((row) => row.score > 0);
   return (
-    requestsCatalogMedia && hasTextMatch
+    hasTextMatch
       ? scored.filter((row) => row.score > 0)
       : allowsGeneralCatalog || hasStructuredPreference
         ? scored
@@ -563,6 +600,7 @@ export async function findCatalogCandidates(
   options: {
     allowSelection?: boolean;
     previousMessages?: ChatMessage[];
+    rankingContext?: string;
   } = {}
 ): Promise<CatalogLookup> {
   if (
@@ -612,7 +650,11 @@ export async function findCatalogCandidates(
 
   return {
     requested: true,
-    candidates: rankCatalogCandidates(candidates, message, maxItems),
+    candidates: rankCatalogCandidates(
+      candidates,
+      options.rankingContext?.trim() || message,
+      maxItems
+    ),
   };
 }
 

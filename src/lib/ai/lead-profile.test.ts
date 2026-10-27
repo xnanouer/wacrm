@@ -100,6 +100,17 @@ describe('AI lead profile', () => {
     );
   });
 
+  it('captures an explicit vehicle price and available down payment', () => {
+    expect(
+      extractDeterministicLeadProfilePatch(
+        'Busco un auto con precio máximo de 12 millones y tengo 2 millones para el pie'
+      )
+    ).toEqual({
+      vehicle_price: '$12.000.000',
+      down_payment: '$2.000.000',
+    });
+  });
+
   it('requires at least a name and surname for document-derived names', () => {
     expect(normalizeDocumentFullName('EEPB')).toBeNull();
     expect(normalizeDocumentFullName('CARLOS ALBERTO SOTO PÉREZ')).toBe(

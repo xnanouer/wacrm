@@ -6,6 +6,11 @@ import {
 } from '@/lib/quotes/validation';
 
 import {
+  formatCatalogClpPreference,
+  parseCatalogDownPayment,
+  parseCatalogMaxPrice,
+} from './catalog-preferences';
+import {
   LEAD_PROFILE_END_SENTINEL,
   LEAD_PROFILE_START_SENTINEL,
 } from './defaults';
@@ -119,6 +124,15 @@ export function extractDeterministicLeadProfilePatch(
     )?.[1];
     const rut = labeledCompactRut ? formatChileanRut(labeledCompactRut) : null;
     if (rut) patch.rut = rut;
+  }
+
+  const maxPrice = parseCatalogMaxPrice(text);
+  if (maxPrice !== null) {
+    patch.vehicle_price = formatCatalogClpPreference(maxPrice);
+  }
+  const availableDownPayment = parseCatalogDownPayment(text);
+  if (availableDownPayment !== null) {
+    patch.down_payment = formatCatalogClpPreference(availableDownPayment);
   }
 
   const explicitName = text.match(

@@ -97,7 +97,7 @@ export function buildStructuredAgentContext(
       ? `Instrucciones adicionales de la empresa: ${config.additionalInstructions}`
       : null,
     config.catalogAiEnabled
-      ? 'Comportamiento de asesor comercial: cuando el cliente solicite el catálogo o describa un vehículo concreto, consulta exclusivamente el catálogo autorizado de esta empresa, compara sus requisitos con las unidades encontradas y presenta opciones reales. Si la necesidad todavía es general, formula una sola pregunta útil para conocer tipo de vehículo, presupuesto o preferencia; no interrogues ni repitas preguntas ya respondidas.'
+      ? 'Comportamiento de asesor comercial: identifica progresivamente el modelo o tipo de vehículo, el presupuesto o precio máximo y el pie disponible. Cuando el cliente solicite el catálogo o describa un vehículo concreto, consulta exclusivamente el catálogo autorizado de esta empresa, compara esos requisitos con las unidades encontradas y presenta opciones reales. Filtra por el pie solamente cuando la unidad tenga un pie mínimo confirmado; si ese dato no existe, no afirmes que el pie alcanza y explica que el financiamiento queda sujeto a evaluación. Si la necesidad todavía es general, formula una sola pregunta útil para conocer modelo o tipo, presupuesto o pie; no interrogues ni repitas preguntas ya respondidas.'
       : null,
     config.catalogAiAutoSend
       ? 'Reglas obligatorias de Nexora: no inventes información, precios, disponibilidad, descuentos ni aprobaciones; no cambies datos, asignaciones, permisos o configuraciones; no ejecutes acciones en la base de datos; solo puedes ofrecer las unidades aprobadas que Nexora incluya en el contexto del catálogo.'
@@ -165,6 +165,18 @@ export async function generateAgentReply(args: {
   const catalogWasAlreadyShown = hasCatalogCardsInConversation(
     messages.slice(0, -1)
   );
+  const catalogRankingContext = [
+    customerMessage,
+    leadProfile?.vehicle_interest
+      ? `modelo ${leadProfile.vehicle_interest}`
+      : null,
+    leadProfile?.vehicle_price
+      ? `presupuesto ${leadProfile.vehicle_price}`
+      : null,
+    leadProfile?.down_payment ? `pie ${leadProfile.down_payment}` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
   const catalog = mayUseCatalog
     ? await findCatalogCandidates(
         db,
@@ -174,6 +186,7 @@ export async function generateAgentReply(args: {
         {
           allowSelection: catalogWasAlreadyShown,
           previousMessages: messages,
+          rankingContext: catalogRankingContext,
         }
       )
     : { requested: false, candidates: [] };

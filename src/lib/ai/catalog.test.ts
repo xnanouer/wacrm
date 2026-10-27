@@ -13,6 +13,7 @@ import {
   isCatalogMediaRequest,
   isCatalogRequest,
   isCatalogSelection,
+  parseCatalogDownPayment,
   parseCatalogMaxPrice,
   rankCatalogCandidates,
   selectPreviouslyShownCandidate,
@@ -127,6 +128,27 @@ describe('AI catalog request detection', () => {
       20_000_000
     );
     expect(parseCatalogMaxPrice('Presupuesto $15.000.000')).toBe(15_000_000);
+    expect(parseCatalogMaxPrice('Precio máximo de 12,5 millones')).toBe(
+      12_500_000
+    );
+  });
+
+  it('understands common Chilean down-payment formats', () => {
+    expect(parseCatalogDownPayment('Tengo 3 millones para el pie')).toBe(
+      3_000_000
+    );
+    expect(parseCatalogDownPayment('Pie disponible: $1.500.000')).toBe(
+      1_500_000
+    );
+    expect(parseCatalogDownPayment('Cuento con 2500 lucas de pie')).toBe(
+      2_500_000
+    );
+    expect(parseCatalogDownPayment('Mi presupuesto es 15 millones')).toBeNull();
+    expect(
+      isCatalogRequest('Tengo 3 millones para el pie', {
+        allowSelection: true,
+      })
+    ).toBe(true);
   });
 });
 
@@ -156,6 +178,45 @@ describe('AI catalog ranking and privacy', () => {
         3
       ).map((item) => item.id)
     ).toEqual(['diesel']);
+  });
+
+  it('matches the requested model, price and confirmed minimum down payment', () => {
+    const morning = candidate({
+      id: 'morning',
+      make: 'Kia',
+      model: 'Morning',
+      displayedPrice: 7_900_000,
+      minimumDownPayment: 1_500_000,
+    });
+    const expensiveMorning = candidate({
+      id: 'expensive-morning',
+      make: 'Kia',
+      model: 'Morning',
+      displayedPrice: 9_500_000,
+      minimumDownPayment: 1_500_000,
+    });
+    const highDownPayment = candidate({
+      id: 'high-down-payment',
+      make: 'Kia',
+      model: 'Morning',
+      displayedPrice: 7_500_000,
+      minimumDownPayment: 3_000_000,
+    });
+    const unrelated = candidate({
+      id: 'tucson',
+      make: 'Hyundai',
+      model: 'Tucson',
+      displayedPrice: 7_500_000,
+      minimumDownPayment: null,
+    });
+
+    expect(
+      rankCatalogCandidates(
+        [unrelated, highDownPayment, expensiveMorning, morning],
+        'Muéstrame un Kia Morning hasta 8 millones, tengo 2 millones para el pie',
+        5
+      ).map((item) => item.id)
+    ).toEqual(['morning']);
   });
 
   it('does not substitute another brand when the requested one is unavailable', () => {
