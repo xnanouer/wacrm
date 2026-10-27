@@ -171,6 +171,8 @@ describe('AI lead profile', () => {
     expect(context).toContain('Vehículo que busca: BAIC X55');
     expect(context).toContain('no vuelvas a preguntarlos');
     expect(context).toContain('no los repitas completos');
+    expect(context).toContain('no significa que haya solicitado iniciar');
+    expect(context).toContain('máximo una pregunta breve por mensaje');
     expect(context).toContain('agrega obligatoriamente un bloque interno');
   });
 

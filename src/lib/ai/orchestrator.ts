@@ -43,6 +43,65 @@ function lines(title: string, values: string[]): string | null {
   return values.length ? `${title}: ${values.join('; ')}` : null;
 }
 
+function normalizeConversationSignal(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es');
+}
+
+/**
+ * Adds a deterministic guardrail when the recent transcript already shows
+ * questionnaire fatigue. The model still sees the complete conversation, but
+ * this instruction makes the customer's immediate need win over profile
+ * completion.
+ */
+export function buildConversationPacingContext(
+  messages: ChatMessage[]
+): string | null {
+  const latestCustomerMessage =
+    [...messages].reverse().find((message) => message.role === 'user')
+      ?.content ?? '';
+  const normalizedLatest = normalizeConversationSignal(latestCustomerMessage);
+  const assistantQuestionTurns = messages.filter(
+    (message) => message.role === 'assistant' && message.content.includes('?')
+  ).length;
+  const customerReportedFriction =
+    /\b(muchas preguntas|tantas preguntas|demasiadas preguntas|puras preguntas|solo preguntan|dejen de preguntar)\b/.test(
+      normalizedLatest
+    );
+  const customerWantsToBrowse =
+    /\b(solo (?:quiero|queria) (?:ver|mirar)|quiero ver|muestrame|catalogo|inventario|stock)\b/.test(
+      normalizedLatest
+    );
+
+  if (customerReportedFriction) {
+    return [
+      'Control de fricción de esta conversación: el cliente indicó que son demasiadas preguntas.',
+      'En la próxima respuesta discúlpate brevemente una sola vez, detén la precalificación y atiende directamente lo que quiere consultar.',
+      'No hagas ninguna pregunta nueva ni solicites datos personales, financieros o documentos en esa respuesta.',
+    ].join(' ');
+  }
+
+  if (customerWantsToBrowse) {
+    return [
+      'Prioridad de esta respuesta: el cliente quiere revisar vehículos o stock.',
+      'Muestra o explica primero las opciones disponibles con la información autorizada.',
+      'No inicies ni continúes una precalificación y no solicites datos personales o financieros en esta respuesta.',
+    ].join(' ');
+  }
+
+  if (assistantQuestionTurns >= 3) {
+    return [
+      `Control de fricción: ya hubo ${assistantQuestionTurns} respuestas del asistente con preguntas en el contexto reciente.`,
+      'No conviertas la conversación en un formulario ni preguntes solo para completar la ficha.',
+      'Aporta valor ahora: responde, muestra alternativas o resume lo ya entendido. Solo formula una nueva pregunta si el cliente pidió expresamente iniciar una precalificación formal y esa pregunta es imprescindible para continuarla.',
+    ].join(' ');
+  }
+
+  return null;
+}
+
 export function buildStructuredAgentContext(
   config: AiConfig,
   accountName: string | null
@@ -86,7 +145,7 @@ export function buildStructuredAgentContext(
     config.leadFields.length
       ? `Datos deseados para calificar el lead: ${config.leadFields.join(
           ', '
-        )}. Solicítalos progresivamente; nunca todos en un solo mensaje. No modifiques el contacto.`
+        )}. Son campos que puedes guardar, no una lista que debas completar preguntando. Solicita como máximo un dato por mensaje y solo cuando sea imprescindible para la necesidad inmediata del cliente. No modifiques el contacto.`
       : null,
     config.escalationRules.length
       ? `Recomienda derivación humana cuando ocurra: ${config.escalationRules.join(
@@ -211,6 +270,7 @@ export async function generateAgentReply(args: {
       leadProfile
         ? buildLeadQualificationContext(leadProfile, config.leadFields)
         : null,
+      buildConversationPacingContext(messages),
     ]
       .filter(Boolean)
       .join('\n\n'),

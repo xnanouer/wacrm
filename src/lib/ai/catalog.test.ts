@@ -76,9 +76,10 @@ describe('AI catalog request detection', () => {
     expect(isCatalogMediaRequest('Todavía no me envíes fotos')).toBe(false);
   });
 
-  it('does not send cards for early, generic vehicle interest', () => {
+  it('opens the catalog for a concrete body-type request', () => {
     expect(isCatalogRequest('Hola, quiero comprar un auto')).toBe(false);
-    expect(isCatalogRequest('Me interesa un SUV')).toBe(false);
+    expect(isCatalogRequest('Me interesa un SUV')).toBe(true);
+    expect(isCatalogRequest('Busco una camioneta')).toBe(true);
     expect(isCatalogRequest('Busco un BAIC X55')).toBe(false);
     expect(isCatalogRequest('Me interesa el BMW')).toBe(false);
     expect(isCatalogRequest('¿Qué tipo de camioneta me recomiendas?')).toBe(
@@ -217,6 +218,61 @@ describe('AI catalog ranking and privacy', () => {
         5
       ).map((item) => item.id)
     ).toEqual(['morning']);
+  });
+
+  it('returns only SUVs for an SUV request and prefers matches with photos', () => {
+    const spresso = candidate({
+      id: 'spresso',
+      make: 'Suzuki',
+      model: 'Spresso',
+      title: 'Suzuki Spresso 2022',
+      description: '',
+      imagePaths: ['spresso.webp'],
+      updatedAt: '2026-10-27T12:00:00.000Z',
+    });
+    const cla = candidate({
+      id: 'cla',
+      make: 'Mercedes-Benz',
+      model: 'CLA 250',
+      title: 'Mercedes-Benz CLA 250 2014',
+      description: '',
+    });
+    const trackerWithoutPhotos = candidate({
+      id: 'tracker-text',
+      make: 'Chevrolet',
+      model: 'Tracker',
+      title: 'Chevrolet Tracker 2022',
+      description: '',
+      imagePaths: [],
+      primaryImagePath: null,
+      updatedAt: '2026-10-27T13:00:00.000Z',
+    });
+    const coolrayWithPhotos = candidate({
+      id: 'coolray-photo',
+      make: 'Geely',
+      model: 'New Coolray',
+      title: 'Geely New Coolray 2025',
+      description: '',
+      imagePaths: ['coolray.webp'],
+      primaryImagePath: 'coolray.webp',
+      updatedAt: '2026-10-20T13:00:00.000Z',
+    });
+
+    expect(
+      rankCatalogCandidates(
+        [spresso, cla, trackerWithoutPhotos, coolrayWithPhotos],
+        'Busco un SUV',
+        5
+      ).map((item) => item.id)
+    ).toEqual(['coolray-photo', 'tracker-text']);
+  });
+
+  it('omits unknown zero mileage from catalog messages', () => {
+    const unknownMileage = candidate({ mileage: 0 });
+
+    expect(buildCatalogSummary([unknownMileage])).not.toContain('0 km');
+    expect(buildCatalogCaption(unknownMileage)).not.toContain('0 km');
+    expect(buildCatalogContext([unknownMileage])).not.toContain('Kilometraje: 0');
   });
 
   it('does not substitute another brand when the requested one is unavailable', () => {

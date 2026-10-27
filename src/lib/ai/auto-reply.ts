@@ -59,6 +59,21 @@ interface InboundSourceMessage {
   media_url: string | null;
 }
 
+const DEFAULT_INBOUND_DEBOUNCE_MS = 5_000;
+
+export function aiInboundDebounceMs(): number {
+  if (process.env.NODE_ENV === 'test') return 0;
+  const configured = Number(process.env.AI_INBOUND_DEBOUNCE_MS);
+  if (!Number.isFinite(configured)) return DEFAULT_INBOUND_DEBOUNCE_MS;
+  return Math.min(10_000, Math.max(0, Math.floor(configured)));
+}
+
+async function waitForInboundBurst(): Promise<void> {
+  const delay = aiInboundDebounceMs();
+  if (delay <= 0) return;
+  await new Promise<void>((resolve) => setTimeout(resolve, delay));
+}
+
 async function sendAutomaticMessage(
   db: ReturnType<typeof supabaseAdmin>,
   accountId: string,
@@ -382,6 +397,28 @@ export async function dispatchInboundToAiReply(
       })
     ) {
       return;
+    }
+
+    // Customers often split one thought into several short WhatsApp messages.
+    // Wait briefly, then let only the newest inbound dispatch answer the whole
+    // burst. This avoids duplicated greetings and questionnaire-style replies.
+    await waitForInboundBurst();
+    if (sourceMessage) {
+      const { data: latestInbound, error: latestInboundError } = await db
+        .from('messages')
+        .select('id')
+        .eq('conversation_id', conversationId)
+        .eq('sender_type', 'customer')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (
+        !latestInboundError &&
+        latestInbound &&
+        latestInbound.id !== sourceMessage.id
+      ) {
+        return;
+      }
     }
 
     // Deterministic, user-configured responders win over the LLM — the

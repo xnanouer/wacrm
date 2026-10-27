@@ -42,6 +42,7 @@ const h = vi.hoisted(() => ({
       content_text: 'hi',
       media_url: null,
     } as Record<string, unknown> | null,
+    latestCustomerMessageId: 'message-uuid' as string | null,
   },
 }));
 
@@ -103,11 +104,25 @@ vi.mock('./admin-client', () => ({
         return chain;
       }
       if (table === 'messages') {
+        let selectedColumns = '';
         const chain = {
-          select: () => chain,
+          select: (columns: string) => {
+            selectedColumns = columns;
+            return chain;
+          },
           eq: () => chain,
+          order: () => chain,
+          limit: () => chain,
           maybeSingle: () =>
-            Promise.resolve({ data: h.state.sourceMessage, error: null }),
+            Promise.resolve({
+              data:
+                selectedColumns === 'id'
+                  ? h.state.latestCustomerMessageId
+                    ? { id: h.state.latestCustomerMessageId }
+                    : null
+                  : h.state.sourceMessage,
+              error: null,
+            }),
         };
         return chain;
       }
@@ -221,6 +236,7 @@ beforeEach(() => {
     content_text: 'hi',
     media_url: null,
   };
+  h.state.latestCustomerMessageId = 'message-uuid';
   h.loadAiConfig.mockResolvedValue(aiConfig());
   h.buildConversationContext.mockResolvedValue([
     { role: 'user', content: 'hi' },
@@ -314,6 +330,16 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
       'operation-1',
       expect.any(Object)
     );
+  });
+
+  it('lets only the newest message in a rapid inbound burst generate a reply', async () => {
+    h.state.latestCustomerMessageId = 'newer-message-uuid';
+
+    await dispatchInboundToAiReply(ARGS);
+
+    expect(h.buildConversationContext).not.toHaveBeenCalled();
+    expect(h.reserveAiPoints).not.toHaveBeenCalled();
+    expect(h.sendMessageToConversation).not.toHaveBeenCalled();
   });
 
   it('does not consume points outside a weekend-only schedule', async () => {

@@ -292,6 +292,13 @@ export function isCatalogRequest(
     (mentionsVehicle || mentionsBrand);
   const explicitlyWantsToSeeVehicles =
     /\b(ver)\b/.test(normalized) && (mentionsVehicle || mentionsBrand);
+  const statesConcreteVehicleInterest =
+    /\b(busco|buscando|quiero|necesito|me interesa|ando buscando)\b/.test(
+      normalized
+    ) &&
+    /\b(suv|crossover|todoterreno|camioneta|pickup|sedan|hatchback|citycar|furgon|van|comercial)\b/.test(
+      normalized
+    );
 
   return (
     explicitlyRequestsCatalog ||
@@ -300,9 +307,78 @@ export function isCatalogRequest(
     refinesShownCatalog ||
     requestsAvailability ||
     explicitlyWantsToSeeVehicles ||
+    statesConcreteVehicleInterest ||
     (options.allowSelection === true &&
       (isCatalogSelection(message) || isCatalogMediaRequest(message)))
   );
+}
+
+type VehicleBodyType =
+  | 'suv'
+  | 'pickup'
+  | 'sedan'
+  | 'hatchback'
+  | 'commercial';
+
+function requestedBodyType(message: string): VehicleBodyType | null {
+  const normalized = normalizeCatalogSearch(message);
+  if (/\b(suv|crossover|todoterreno)\b/.test(normalized)) return 'suv';
+  if (/\b(camioneta|pickup)\b/.test(normalized)) return 'pickup';
+  if (/\bsedan\b/.test(normalized)) return 'sedan';
+  if (/\b(hatchback|citycar|city car)\b/.test(normalized)) return 'hatchback';
+  if (/\b(furgon|van|comercial)\b/.test(normalized)) return 'commercial';
+  return null;
+}
+
+/**
+ * The original catalog schema has no body-style column. Infer only models we
+ * can identify confidently so a request for an SUV never falls back to random
+ * hatchbacks or sedans. Unknown models are excluded from body-style searches
+ * instead of being presented as a match.
+ */
+function inferBodyType(candidate: AiCatalogCandidate): VehicleBodyType | null {
+  const value = normalizeCatalogSearch(
+    [
+      candidate.title,
+      candidate.description,
+      candidate.make,
+      candidate.model,
+      candidate.version,
+    ].join(' ')
+  );
+
+  if (
+    /\b(cargo van|furgon|van|porter|partner|c35l|delivery|x200|berlingo|expert|hino|tm3)\b/.test(
+      value
+    )
+  ) {
+    return 'commercial';
+  }
+  if (
+    /\b(t6|t60|colorado|hilux|f150|raptor|l200|katana|navara|amarok|ram 700|wingle|dmax|ranger|vigus|saveiro)\b/.test(
+      value
+    )
+  ) {
+    return 'pickup';
+  }
+  if (
+    /\b(suv|crossover|todoterreno|gle|ml300|coolray|zs|tracker|tucson|tiggo|jimny|x70|mokka|edge|creta|3008|rexton|x trail|captur|ecosport|raize|rav4|sportage|santa fe|kicks|qashqai|duster|territory|cx 3|cx 5|cx 9|outlander|asx|forester|compass|renegade|wrangler|koleos)\b/.test(
+      value
+    )
+  ) {
+    return 'suv';
+  }
+  if (/\b(sedan|soluto|cla|s60|accent|wrx)\b/.test(value)) {
+    return 'sedan';
+  }
+  if (
+    /\b(hatchback|hb|spresso|baleno|atos|morning|c3|mg 3|clio|spark|grand i10|cooper|308)\b/.test(
+      value
+    )
+  ) {
+    return 'hatchback';
+  }
+  return null;
 }
 
 function requestedYear(message: string): number | null {
@@ -339,6 +415,21 @@ const GENERIC_TOKENS = new Set([
   'automoviles',
   'quiero',
   'busco',
+  'buscando',
+  'interesa',
+  'me',
+  'suv',
+  'crossover',
+  'todoterreno',
+  'camioneta',
+  'camionetas',
+  'pickup',
+  'sedan',
+  'hatchback',
+  'citycar',
+  'furgon',
+  'van',
+  'comercial',
   'tienen',
   'tienes',
   'mostrar',
@@ -404,9 +495,11 @@ export function rankCatalogCandidates(
   const year = requestedYear(message);
   const fuel = requestedFuel(message);
   const transmission = requestedTransmission(message);
+  const bodyType = requestedBodyType(message);
   const normalized = normalizeCatalogSearch(message);
   const requestsCatalogMedia = isCatalogMediaRequest(message);
   const allowsGeneralCatalog =
+    bodyType !== null ||
     requestsCatalogMedia ||
     /\b(catalogo|inventario|opciones|stock)\b/.test(normalized) ||
     (/\b(envia|enviame|enviar|manda|mandame|comparti|comparteme|muestra|muestrame|mostrar|ensena|ensename|ver)\b/.test(
@@ -427,6 +520,9 @@ export function rankCatalogCandidates(
 
   const scored = candidates
     .filter((candidate) => {
+      if (bodyType !== null && inferBodyType(candidate) !== bodyType) {
+        return false;
+      }
       if (maxPrice !== null && candidate.displayedPrice > maxPrice)
         return false;
       if (
@@ -461,6 +557,8 @@ export function rankCatalogCandidates(
           candidate.make,
           candidate.model,
           candidate.version,
+          candidate.title,
+          candidate.description,
           candidate.year,
           candidate.color,
           candidate.fuel,
@@ -494,6 +592,8 @@ export function rankCatalogCandidates(
         Number(b.hasConfirmedCompatibleDownPayment) -
           Number(a.hasConfirmedCompatibleDownPayment) ||
         a.priceDistance - b.priceDistance ||
+        Number(b.candidate.imagePaths.length > 0) -
+          Number(a.candidate.imagePaths.length > 0) ||
         Date.parse(b.candidate.updatedAt) - Date.parse(a.candidate.updatedAt)
     );
 
@@ -718,7 +818,9 @@ export function buildCatalogContext(candidates: AiCatalogCandidate[]): string {
         candidate.offerPrice !== null
           ? `Precio oferta vigente: ${clp(candidate.offerPrice)}`
           : `Valor del vehículo: ${clp(candidate.listPrice)}`,
-        `Kilometraje: ${candidate.mileage.toLocaleString('es-CL')} km`,
+        candidate.mileage > 0
+          ? `Kilometraje: ${candidate.mileage.toLocaleString('es-CL')} km`
+          : null,
         candidate.color ? `Color: ${candidate.color}` : null,
         candidate.engine ? `Motor: ${candidate.engine}` : null,
         `Combustible: ${candidate.fuel}`,
@@ -748,7 +850,9 @@ export function buildCatalogCaption(candidate: AiCatalogCandidate): string {
     `📅 Año: ${candidate.year}`,
     candidate.color ? `🎨 Color: ${candidate.color}` : null,
     candidate.engine ? `🔧 Motor: ${candidate.engine}` : null,
-    `🛣️ Kilometraje: ${candidate.mileage.toLocaleString('es-CL')} km`,
+    candidate.mileage > 0
+      ? `🛣️ Kilometraje: ${candidate.mileage.toLocaleString('es-CL')} km`
+      : null,
     `⚙️ Transmisión: ${candidate.transmission}`,
     `⛽ Combustible: ${candidate.fuel}`,
     `🧭 Tracción: ${candidate.drivetrain}`,
@@ -789,9 +893,11 @@ export function buildCatalogSummary(
       .trim();
     const details = [
       candidate.year,
-      `${candidate.mileage.toLocaleString('es-CL')} km`,
+      candidate.mileage > 0
+        ? `${candidate.mileage.toLocaleString('es-CL')} km`
+        : null,
       clp(candidate.displayedPrice),
-    ];
+    ].filter((detail): detail is string | number => detail !== null);
     return `${index + 1}. *${name}* — ${details.join(' · ')}`;
   });
 
