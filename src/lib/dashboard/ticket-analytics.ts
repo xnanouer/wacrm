@@ -17,6 +17,7 @@ export interface TicketAnalyticsSummary {
   closedTickets: number;
   avgFirstResponseMinutes: number | null;
   avgAiFirstResponseMinutes: number | null;
+  humanAnsweredTickets: number;
   aiAnsweredTickets: number;
   aiExcludedOutliers: number;
   avgResolutionMinutes: number | null;
@@ -137,6 +138,7 @@ export function normalizeTicketAnalytics(
       avgAiFirstResponseMinutes: asNullableNumber(
         aiSummary.avg_first_response_minutes
       ),
+      humanAnsweredTickets: asNumber(aiSummary.human_answered_tickets),
       aiAnsweredTickets: asNumber(aiSummary.answered_tickets),
       aiExcludedOutliers: asNumber(aiSummary.excluded_outliers),
       avgResolutionMinutes: asNullableNumber(summary.avg_resolution_minutes),

@@ -115,32 +115,51 @@ export function TicketAnalyticsPanel() {
     };
   }, [db]);
 
-  const refresh = useCallback(async () => {
-    const currentRequest = ++requestId.current;
-    setLoading(true);
-    setError(null);
+  const refresh = useCallback(
+    async (background = false) => {
+      const currentRequest = ++requestId.current;
+      if (!background) setLoading(true);
+      if (!background) setError(null);
 
-    try {
-      const range = buildTicketAnalyticsRange(rangeDays);
-      const result = await loadTicketAnalytics(db, {
-        ...range,
-        departmentId,
-        agentId,
-        whatsappConfigId,
-      });
-      if (requestId.current === currentRequest) setAnalytics(result);
-    } catch (loadError) {
-      console.error('[ticket analytics] load failed:', loadError);
-      if (requestId.current === currentRequest) {
-        setError('No se pudieron cargar las estadísticas de tickets.');
+      try {
+        const range = buildTicketAnalyticsRange(rangeDays);
+        const result = await loadTicketAnalytics(db, {
+          ...range,
+          departmentId,
+          agentId,
+          whatsappConfigId,
+        });
+        if (requestId.current === currentRequest) setAnalytics(result);
+      } catch (loadError) {
+        console.error('[ticket analytics] load failed:', loadError);
+        if (requestId.current === currentRequest && !background) {
+          setError('No se pudieron cargar las estadísticas de tickets.');
+        }
+      } finally {
+        if (requestId.current === currentRequest && !background) {
+          setLoading(false);
+        }
       }
-    } finally {
-      if (requestId.current === currentRequest) setLoading(false);
-    }
-  }, [agentId, db, departmentId, rangeDays, whatsappConfigId]);
+    },
+    [agentId, db, departmentId, rangeDays, whatsappConfigId]
+  );
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const refreshInBackground = () => {
+      if (document.visibilityState === 'visible') void refresh(true);
+    };
+    const interval = window.setInterval(refreshInBackground, 60_000);
+    window.addEventListener('focus', refreshInBackground);
+    document.addEventListener('visibilitychange', refreshInBackground);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshInBackground);
+      document.removeEventListener('visibilitychange', refreshInBackground);
+    };
   }, [refresh]);
 
   const memberNames = useMemo(
@@ -298,6 +317,7 @@ function SummaryCards({
       <FirstResponseComparisonCard
         humanMinutes={summary.avgFirstResponseMinutes}
         aiMinutes={summary.avgAiFirstResponseMinutes}
+        humanAnsweredTickets={summary.humanAnsweredTickets}
         aiAnsweredTickets={summary.aiAnsweredTickets}
         aiExcludedOutliers={summary.aiExcludedOutliers}
       />
@@ -332,11 +352,13 @@ function SummaryCards({
 function FirstResponseComparisonCard({
   humanMinutes,
   aiMinutes,
+  humanAnsweredTickets,
   aiAnsweredTickets,
   aiExcludedOutliers,
 }: {
   humanMinutes: number | null;
   aiMinutes: number | null;
+  humanAnsweredTickets: number;
   aiAnsweredTickets: number;
   aiExcludedOutliers: number;
 }) {
@@ -369,12 +391,15 @@ function FirstResponseComparisonCard({
           </p>
         </div>
       </div>
-      <p className="text-muted-foreground relative mt-3 text-xs">
-        IA primero en {aiAnsweredTickets.toLocaleString()}{' '}
-        {aiAnsweredTickets === 1 ? 'ticket' : 'tickets'}
+      <p className="text-muted-foreground relative mt-3 text-xs leading-5">
+        IA: {aiAnsweredTickets.toLocaleString()}{' '}
+        {aiAnsweredTickets === 1 ? 'ticket atendido' : 'tickets atendidos'}
         {aiExcludedOutliers > 0
           ? ` · ${aiExcludedOutliers.toLocaleString()} atípicos fuera del promedio`
           : ' · Sin datos atípicos'}
+        <br />
+        Humana: {humanAnsweredTickets.toLocaleString()}{' '}
+        {humanAnsweredTickets === 1 ? 'ticket medido' : 'tickets medidos'}
       </p>
     </div>
   );
