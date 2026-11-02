@@ -25,7 +25,10 @@ import {
   type TicketAnalyticsRangeDays,
   type TicketDailyMetric,
 } from '@/lib/dashboard/ticket-analytics';
-import { formatAnalyticsDuration } from '@/lib/dashboard/duration';
+import {
+  formatDashboardDuration,
+  formatFirstResponseDuration,
+} from '@/lib/dashboard/duration';
 import type { AccountMember, Department } from '@/types';
 
 interface WhatsAppOption {
@@ -324,7 +327,7 @@ function SummaryCards({
       />
       <MetricCard
         title="Tiempo de resolución"
-        value={formatAnalyticsDuration(summary.avgResolutionMinutes)}
+        value={formatDashboardDuration(summary.avgResolutionMinutes)}
         icon={AlarmClock}
         subtitle="Creación a cierre"
       />
@@ -380,7 +383,7 @@ function FirstResponseComparisonCard({
             Humana
           </span>
           <p className="text-foreground mt-1 text-2xl leading-none font-bold tracking-[-0.035em] tabular-nums">
-            {formatAnalyticsDuration(humanMinutes)}
+            {formatFirstResponseDuration(humanMinutes)}
           </p>
         </div>
         <div className="border-border border-l pl-3">
@@ -388,7 +391,7 @@ function FirstResponseComparisonCard({
             <Bot className="size-3.5" /> IA
           </span>
           <p className="text-foreground mt-1 text-2xl leading-none font-bold tracking-[-0.035em] tabular-nums">
-            {formatAnalyticsDuration(aiMinutes)}
+            {formatFirstResponseDuration(aiMinutes)}
           </p>
         </div>
       </div>
@@ -617,11 +620,11 @@ function AgentTable({
                 ['Cerrados', agent.closedTickets.toLocaleString()],
                 [
                   '1ª respuesta',
-                  formatAnalyticsDuration(agent.avgFirstResponseMinutes),
+                  formatDashboardDuration(agent.avgFirstResponseMinutes),
                 ],
                 [
                   'Resolución',
-                  formatAnalyticsDuration(agent.avgResolutionMinutes),
+                  formatDashboardDuration(agent.avgResolutionMinutes),
                 ],
               ].map(([label, value]) => (
                 <div
@@ -663,10 +666,10 @@ function AgentTable({
                 <NumberCell value={agent.acceptedTickets} />
                 <NumberCell value={agent.closedTickets} />
                 <td className="text-muted-foreground px-3 py-3 text-right tabular-nums">
-                  {formatAnalyticsDuration(agent.avgFirstResponseMinutes)}
+                  {formatDashboardDuration(agent.avgFirstResponseMinutes)}
                 </td>
                 <td className="text-muted-foreground px-5 py-3 text-right tabular-nums">
-                  {formatAnalyticsDuration(agent.avgResolutionMinutes)}
+                  {formatDashboardDuration(agent.avgResolutionMinutes)}
                 </td>
               </tr>
             ))}
