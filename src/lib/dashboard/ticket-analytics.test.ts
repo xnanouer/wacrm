@@ -52,6 +52,7 @@ describe('normalizeTicketAnalytics', () => {
       },
       {
         avg_first_response_minutes: '0.4',
+        avg_human_first_response_minutes: '126.7125',
         human_answered_tickets: '9',
         answered_tickets: '11',
         excluded_outliers: '2',
@@ -62,7 +63,7 @@ describe('normalizeTicketAnalytics', () => {
       newTickets: 12,
       pendingNow: 3,
       closedTickets: 8,
-      avgFirstResponseMinutes: 4.5,
+      avgFirstResponseMinutes: 126.7125,
       avgAiFirstResponseMinutes: 0.4,
       humanAnsweredTickets: 9,
       aiAnsweredTickets: 11,

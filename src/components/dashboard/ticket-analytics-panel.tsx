@@ -25,6 +25,7 @@ import {
   type TicketAnalyticsRangeDays,
   type TicketDailyMetric,
 } from '@/lib/dashboard/ticket-analytics';
+import { formatAnalyticsDuration } from '@/lib/dashboard/duration';
 import type { AccountMember, Department } from '@/types';
 
 interface WhatsAppOption {
@@ -323,7 +324,7 @@ function SummaryCards({
       />
       <MetricCard
         title="Tiempo de resolución"
-        value={formatDuration(summary.avgResolutionMinutes)}
+        value={formatAnalyticsDuration(summary.avgResolutionMinutes)}
         icon={AlarmClock}
         subtitle="Creación a cierre"
       />
@@ -379,7 +380,7 @@ function FirstResponseComparisonCard({
             Humana
           </span>
           <p className="text-foreground mt-1 text-2xl leading-none font-bold tracking-[-0.035em] tabular-nums">
-            {formatDuration(humanMinutes)}
+            {formatAnalyticsDuration(humanMinutes)}
           </p>
         </div>
         <div className="border-border border-l pl-3">
@@ -387,7 +388,7 @@ function FirstResponseComparisonCard({
             <Bot className="size-3.5" /> IA
           </span>
           <p className="text-foreground mt-1 text-2xl leading-none font-bold tracking-[-0.035em] tabular-nums">
-            {formatDuration(aiMinutes)}
+            {formatAnalyticsDuration(aiMinutes)}
           </p>
         </div>
       </div>
@@ -614,8 +615,14 @@ function AgentTable({
                 ['Asignados', agent.assignedNow.toLocaleString()],
                 ['Aceptados', agent.acceptedTickets.toLocaleString()],
                 ['Cerrados', agent.closedTickets.toLocaleString()],
-                ['1ª respuesta', formatDuration(agent.avgFirstResponseMinutes)],
-                ['Resolución', formatDuration(agent.avgResolutionMinutes)],
+                [
+                  '1ª respuesta',
+                  formatAnalyticsDuration(agent.avgFirstResponseMinutes),
+                ],
+                [
+                  'Resolución',
+                  formatAnalyticsDuration(agent.avgResolutionMinutes),
+                ],
               ].map(([label, value]) => (
                 <div
                   key={label}
@@ -656,10 +663,10 @@ function AgentTable({
                 <NumberCell value={agent.acceptedTickets} />
                 <NumberCell value={agent.closedTickets} />
                 <td className="text-muted-foreground px-3 py-3 text-right tabular-nums">
-                  {formatDuration(agent.avgFirstResponseMinutes)}
+                  {formatAnalyticsDuration(agent.avgFirstResponseMinutes)}
                 </td>
                 <td className="text-muted-foreground px-5 py-3 text-right tabular-nums">
-                  {formatDuration(agent.avgResolutionMinutes)}
+                  {formatAnalyticsDuration(agent.avgResolutionMinutes)}
                 </td>
               </tr>
             ))}
@@ -764,15 +771,6 @@ function Legend({ color, label }: { color: string; label: string }) {
       {label}
     </span>
   );
-}
-
-function formatDuration(minutes: number | null): string {
-  if (minutes === null) return '—';
-  if (minutes < 1) return `${Math.max(1, Math.round(minutes * 60))} s`;
-  if (minutes < 60) return `${Math.round(minutes)} min`;
-  const hours = minutes / 60;
-  if (hours < 24) return `${hours.toFixed(hours < 10 ? 1 : 0)} h`;
-  return `${(hours / 24).toFixed(1)} d`;
 }
 
 function formatDay(day: string): string {

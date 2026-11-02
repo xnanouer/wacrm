@@ -133,7 +133,8 @@ export function normalizeTicketAnalytics(
       pendingNow: asNumber(summary.pending_now),
       closedTickets: asNumber(summary.closed_tickets),
       avgFirstResponseMinutes: asNullableNumber(
-        summary.avg_first_response_minutes
+        aiSummary.avg_human_first_response_minutes ??
+          summary.avg_first_response_minutes
       ),
       avgAiFirstResponseMinutes: asNullableNumber(
         aiSummary.avg_first_response_minutes
